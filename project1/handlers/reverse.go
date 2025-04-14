@@ -15,7 +15,7 @@ func Reverse(conn net.Conn, params map[string]string) {
     }
 
     reversed := reverseString(text)
-    utils.SendResponse(conn, "200 OK", reversed, "\n")
+    utils.SendResponse(conn, "200 OK", reversed + "\n")
 }
 
 func reverseString(s string) string {

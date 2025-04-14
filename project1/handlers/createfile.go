@@ -28,7 +28,7 @@ func CreateFile(conn net.Conn, params map[string]string) {
 
     repeated := strings.Repeat(content+"\n", repeat)
 
-    err = os.WriteFile(name, []byte(repeated), 0644)
+    err = os.WriteFile("files/" + name, []byte(repeated), 0644)
     if err != nil {
         utils.SendResponse(conn, "500 Internal Server Error", "No se pudo crear el archivo\n")
         return

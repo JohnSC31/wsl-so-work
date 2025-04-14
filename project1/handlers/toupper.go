@@ -15,5 +15,5 @@ func ToUpper(conn net.Conn, params map[string]string) {
         return
     }
 
-    utils.SendResponse(conn, "200 OK", strings.ToUpper(text), "\n")
+    utils.SendResponse(conn, "200 OK", strings.ToUpper(text) + "\n")
 }

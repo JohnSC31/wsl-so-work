@@ -22,7 +22,7 @@ func Fibonacci(conn net.Conn, params map[string]string) {
     }
 
     result := fibonacci(n)
-    utils.SendResponse(conn, "200 OK", strconv.Itoa(result), "\n")
+    utils.SendResponse(conn, "200 OK", strconv.Itoa(result)+"\n")
 }
 
 func fibonacci(n int) int {
