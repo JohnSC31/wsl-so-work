@@ -51,13 +51,33 @@ func handleConnection(conn net.Conn) {
 	route, params := utils.ParseRoute(path)
 
 	switch route {
+		
 	case "/help":
 		handlers.Help(conn)
+
 	case "/timestamp":
 		handlers.Timestamp(conn)
+
+	case "/fibonacci":
+		handlers.Fibonacci(conn, params)
+
+	case "/createfile":
+		handlers.CreateFile(conn, params)
+
+	case "/deletefile":
+		handlers.DeleteFile(conn, params)
+
+	case "/reverse":
+		handlers.Reverse(conn, params)
+
+	case "/toupper":
+		handlers.ToUpper(conn, params)
+
 	case "/random":
 		handlers.Random(conn, params["min"], params["max"], params["count"])
+
 	default:
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
 	}
+	
 }
