@@ -51,7 +51,7 @@ func handleConnection(conn net.Conn) {
 	route, params := utils.ParseRoute(path)
 
 	switch route {
-		
+
 	case "/help":
 		handlers.Help(conn)
 
@@ -76,8 +76,19 @@ func handleConnection(conn net.Conn) {
 	case "/random":
 		handlers.Random(conn, params["min"], params["max"], params["count"])
 
+	case "/hash":
+		handlers.Hash(conn, params["text"])
+
+	case "/simulate":
+		handlers.Simulate(conn, params["seconds"], params["task"])
+
+	case "/sleep":
+		handlers.Sleep(conn, params["seconds"])
+
+	case "/loadtest":
+		handlers.Loadtest(conn, params["tasks"], params["sleep"])
 	default:
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
 	}
-	
+
 }
