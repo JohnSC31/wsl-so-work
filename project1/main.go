@@ -4,15 +4,64 @@ import (
 	// "fmt"
 	"log"
 	"net"
+	"sync"
+	"time"
 
 	// "strings"
-	"http-servidor/handlers"
+
+	_ "http-servidor/handlers"
 	"http-servidor/utils"
 )
 
+// Structs
+// Request
+type Request struct {
+	ID           int
+	Conn         net.Conn
+	Ruta         string
+	Parametros   map[string]string
+	TiempoInicio time.Time
+	Listo        chan bool
+}
+
+type Server struct {
+	FastPool *WorkerPool
+	SlowPool *WorkerPool
+	Metrics  *Metricas
+	listener net.Listener  // Socket subyacente
+	doneChan chan struct{} // Para shutdown
+}
+
+type Metricas struct {
+	Mu            sync.Mutex
+	TiempoInicio  time.Time
+	TotalRequests int
+	ActWorkers    int
+}
+
 const PORT = ":8080"
 
+func NewServer() *Server {
+	return &Server{
+		FastPool: NewWorkerPool(3),  // 3 workers rápidos
+		SlowPool: NewWorkerPool(10), // 10 workers lentos
+		Metrics: &Metricas{TiempoInicio: time.Now(),
+			TotalRequests: 0,
+			ActWorkers:    0,
+		},
+		doneChan: make(chan struct{}),
+	}
+}
+
 func main() {
+
+	Server := NewServer()
+	Server.FastPool.Start()
+	Server.SlowPool.Start()
+	fast := Server.FastPool
+	slow := Server.SlowPool
+	metricas := Server.Metrics
+
 	ln, err := net.Listen("tcp", PORT)
 	if err != nil {
 		log.Fatalf("Error al iniciar servidor: %v", err)
@@ -26,12 +75,12 @@ func main() {
 			log.Printf("Error aceptando conexión: %v", err)
 			continue
 		}
-		go handleConnection(conn)
+		go handleConnection(conn, metricas, fast, slow)
 	}
 }
 
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
+func handleConnection(conn net.Conn, metricas *Metricas, fast *WorkerPool, slow *WorkerPool) {
+	//defer conn.Close()
 
 	buffer := make([]byte, 1024)
 	n, err := conn.Read(buffer)
@@ -49,46 +98,29 @@ func handleConnection(conn net.Conn) {
 	}
 
 	route, params := utils.ParseRoute(path)
+	// Se incrementa el contador de solicitudes
+	metricas.Mu.Lock()
+	metricas.TotalRequests++
+	metricas.Mu.Unlock()
 
+	newRequest := Request{
+		ID:           metricas.TotalRequests,
+		Conn:         conn,
+		Ruta:         route,
+		Parametros:   params,
+		TiempoInicio: time.Now(),
+		Listo:        make(chan bool),
+	}
+
+	print("Request ID: ", newRequest.ID, " Ruta: ", newRequest.Ruta, "\n")
 	switch route {
-
-	case "/help":
-		handlers.Help(conn)
-
-	case "/timestamp":
-		handlers.Timestamp(conn)
-
-	case "/fibonacci":
-		handlers.Fibonacci(conn, params)
-
-	case "/createfile":
-		handlers.CreateFile(conn, params)
-
-	case "/deletefile":
-		handlers.DeleteFile(conn, params)
-
-	case "/reverse":
-		handlers.Reverse(conn, params)
-
-	case "/toupper":
-		handlers.ToUpper(conn, params)
-
-	case "/random":
-		handlers.Random(conn, params["min"], params["max"], params["count"])
-
-	case "/hash":
-		handlers.Hash(conn, params["text"])
-
-	case "/simulate":
-		handlers.Simulate(conn, params["seconds"], params["task"])
-
-	case "/sleep":
-		handlers.Sleep(conn, params["seconds"])
-
-	case "/loadtest":
-		handlers.Loadtest(conn, params["tasks"], params["sleep"])
+	case "/help", "/timestamp", "/reverse", "/toupper", "/hash", "/random":
+		fast.RequestChan <- newRequest
+	case "/fibonacci", "/simulate", "/sleep", "/loadtest", "/createfile", "/deletefile":
+		slow.RequestChan <- newRequest
 	default:
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
 	}
 
+	newRequest.Listo <- true
 }

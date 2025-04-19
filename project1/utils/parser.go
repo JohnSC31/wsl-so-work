@@ -38,5 +38,6 @@ func ParseRoute(path string) (string, map[string]string) {
 
 func SendResponse(conn net.Conn, status, body string) {
 	response := fmt.Sprintf("HTTP/1.0 %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", status, len(body), body)
+	print(response)
 	conn.Write([]byte(response))
 }

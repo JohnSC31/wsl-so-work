@@ -1,12 +1,12 @@
 package handlers
 
 import (
-    "net"
-    "http-servidor/utils"
+	"http-servidor/utils"
+	"net"
 )
 
 func Help(conn net.Conn) {
-    body := `
+	body := `
     Rutas disponibles:
     - /help
     - /timestamp
@@ -14,5 +14,5 @@ func Help(conn net.Conn) {
     - /reverse?text=abc
     - /toupper?text=abc
     `
-    utils.SendResponse(conn, "200 OK", body)
+	utils.SendResponse(conn, "200 OK", body)
 }
