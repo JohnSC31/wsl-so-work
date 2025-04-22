@@ -5,7 +5,7 @@ package main
 // 
 
 import (
-	"fmt"
+	// "fmt"
 	"log"
 	"net"
 	"sync"
@@ -60,22 +60,39 @@ func NewServer() *Server {
 	}
 }
 
-func printAllWorkers(server *Server){
-
-	for _, fastworker := range server.FastPool.Workers {
-		printWorker(fastworker)
+func GetFastWorkers(server *Server) []map[string]interface{} {
+	var workers []map[string]interface{}
+	for _, w := range server.FastPool.Workers {
+		task := "ninguna"
+		if w.ReqActual != nil {
+			task = w.ReqActual.Ruta
+		}
+		workers = append(workers, map[string]interface{}{
+			"pid":   w.ID,
+			"task":  task,
+			"state": w.Status,
+		})
 	}
-
-	for _, slowWorker := range server.SlowPool.Workers {
-		printWorker(slowWorker)
-		// fmt.Printf("PID: %d | Task: %s | Estado: %s\n", worker.PID, worker.Task, worker.State)
-	}
+	return workers
 }
 
-func printWorker(w *Worker){
-	// fmt.Printf("Worker %d estado %d comando %d", w.ID, w.Status, w.ReqActual.Ruta)
-	fmt.Printf("PID: %d | Task: %s | Estado: %s\n", w.ID, w.ReqActual.Ruta, w.Status)
+func GetSlowWorkers(server *Server) []map[string]interface{} {
+	var workers []map[string]interface{}
+	for _, w := range server.SlowPool.Workers {
+		task := "ninguna"
+		if w.ReqActual != nil {
+			task = w.ReqActual.Ruta
+		}
+		workers = append(workers, map[string]interface{}{
+			"pid":   w.ID,
+			"task":  task,
+			"state": w.Status,
+		})
+	}
+	return workers
 }
+
+
 
 func main() {
 
@@ -146,11 +163,14 @@ func handleConnection(conn net.Conn, server *Server) {
 
 	case "/status":
 		// el estado del servidor
+		print("Entramos al status")
+
 		data := map[string]interface{}{
 			"uptime":              server.Metrics.TiempoInicio,
 			"main_pid":            server.ServerId,
 			"total_connections":   server.Metrics.TotalRequests,
-			"workers":             printAllWorkers(server),
+			"fast workers":        GetFastWorkers(server),
+			"slow workers":        GetSlowWorkers(server),
 		}
 	
 		jsonData, err := json.MarshalIndent(data, "", "  ")
