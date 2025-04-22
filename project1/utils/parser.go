@@ -41,3 +41,9 @@ func SendResponse(conn net.Conn, status, body string) {
 	print(response)
 	conn.Write([]byte(response))
 }
+
+func SendJSON(conn net.Conn, status string, body []byte) {
+    header := fmt.Sprintf("HTTP/1.0 %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n", status, len(body))
+    conn.Write([]byte(header))
+    conn.Write(body)
+}
