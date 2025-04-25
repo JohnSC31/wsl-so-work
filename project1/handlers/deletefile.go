@@ -15,8 +15,8 @@ func DeleteFile(conn net.Conn, params map[string]string) {
         return
     }
 
-    syncutils.FilesMutex.Lock() // uso del mutex
-    defer syncutils.FilesMutex.Unlock()
+    utils.FilesMutex.Lock() // uso del mutex
+    defer utils.FilesMutex.Unlock()
 
     err := os.Remove("files/"+name)
     if err != nil {

@@ -28,8 +28,8 @@ func CreateFile(conn net.Conn, params map[string]string) {
 
     repeated := strings.Repeat(content+"\n", repeat)
 
-    syncutils.FilesMutex.Lock() // uso del mutex
-    defer syncutils.FilesMutex.Unlock()
+    utils.FilesMutex.Lock() // uso del mutex
+    defer utils.FilesMutex.Unlock()
 
     err = os.WriteFile("files/" + name, []byte(repeated), 0644)
     if err != nil {
