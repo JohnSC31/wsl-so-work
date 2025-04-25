@@ -9,11 +9,6 @@ import (
 )
 
 func Random(conn net.Conn, min string, max string, cantidad string) {
-	print("Random handler called\n")
-
-	fmt.Println("Min:", min)
-	fmt.Println("Max:", max)
-	fmt.Println("Cantidad:", cantidad)
 
 	cantidadI, err := strconv.Atoi(cantidad)
 	if err != nil {

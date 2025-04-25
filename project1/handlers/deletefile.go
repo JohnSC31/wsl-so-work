@@ -15,6 +15,9 @@ func DeleteFile(conn net.Conn, params map[string]string) {
         return
     }
 
+    syncutils.FilesMutex.Lock() // uso del mutex
+    defer syncutils.FilesMutex.Unlock()
+
     err := os.Remove("files/"+name)
     if err != nil {
         utils.SendResponse(conn, "500 Internal Server Error", "Error al eliminar el archivo (puede que no exista)\n")

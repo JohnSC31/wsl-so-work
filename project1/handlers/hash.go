@@ -8,8 +8,6 @@ import (
 )
 
 func Hash(conn net.Conn, text string) {
-	print("Hash handler called\n")
-	println("Text:", text)
 
 	hash := sha256.New()
 	hash.Write([]byte(text))
@@ -19,8 +17,7 @@ func Hash(conn net.Conn, text string) {
 
 	body := "El hash SHA-256 del texto es:\n\n"
 	body += hashedHex
+
 	utils.SendResponse(conn, "200 OK", body)
-	fmt.Println("Hash response sent")
-	//conn.Close()
 
 }

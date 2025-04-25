@@ -4,7 +4,12 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 )
+
+// mutex para los archivos
+var FilesMutex = &sync.Mutex{}
+
 
 func ParseRequestLine(request string) (method, path string) {
 	lines := strings.Split(request, "\r\n")

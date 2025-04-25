@@ -11,10 +11,8 @@ import (
 	"sync"
 	"time"
 	"encoding/json"
-
 	// "strings"
-
-	_ "http-servidor/handlers"
+	"http-servidor/handlers"
 	"http-servidor/utils"
 )
 
@@ -92,8 +90,6 @@ func GetSlowWorkers(server *Server) []map[string]interface{} {
 	return workers
 }
 
-
-
 func main() {
 
 	Server := NewServer()
@@ -118,7 +114,7 @@ func main() {
 }
 
 func handleConnection(conn net.Conn, server *Server) {
-	//defer conn.Close()
+	defer conn.Close()
 
 	buffer := make([]byte, 1024)
 	n, err := conn.Read(buffer)
@@ -163,8 +159,6 @@ func handleConnection(conn net.Conn, server *Server) {
 
 	case "/status":
 		// el estado del servidor
-		print("Entramos al status")
-
 		data := map[string]interface{}{
 			"uptime":              server.Metrics.TiempoInicio,
 			"main_pid":            server.ServerId,
