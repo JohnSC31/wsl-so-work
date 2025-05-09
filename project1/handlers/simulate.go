@@ -10,8 +10,8 @@ import (
 func Simulate(conn net.Conn, seconds string, nombre string) {
 
 	secondsI, err := strconv.Atoi(seconds)
-	if err != nil {
-		utils.SendResponse(conn, "400 Bad Request", "Seconds debe ser un numero valido")
+	if err != nil || secondsI <= 0 {
+		utils.SendResponse(conn, "400 Bad Request", "Seconds debe ser un numero valido, entero y positivo\n")
 		return
 	}
 

@@ -3,13 +3,14 @@ package handlers
 import (
     "net"
     "http-servidor/utils"
+    "strings"
 )
 
 // /reverse?text=abc
 
 func Reverse(conn net.Conn, params map[string]string) {
     text, ok := params["text"]
-    if !ok {
+    if !ok || strings.TrimSpace(text) == ""{
         utils.SendResponse(conn, "400 Bad Request", "Falta el parámetro 'text'\n")
         return
     }

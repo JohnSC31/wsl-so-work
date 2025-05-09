@@ -11,8 +11,8 @@ func Sleep(conn net.Conn, seconds string) {
 	print("Simulate handler called\n")
 
 	secondsI, err := strconv.Atoi(seconds)
-	if err != nil {
-		utils.SendResponse(conn, "400 Bad Request", "Seconds debe ser un numero valido")
+	if err != nil || secondsI <= 0 {
+		utils.SendResponse(conn, "400 Bad Request", "Seconds debe ser un numero valido, entero y postivo\n")
 		return
 	}
 
