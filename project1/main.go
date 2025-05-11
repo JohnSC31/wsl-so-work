@@ -2,15 +2,16 @@ package main
 
 // Pruebas unitarias
 // Status
-// 
+//
 
 import (
 	// "fmt"
+	"encoding/json"
 	"log"
 	"net"
 	"sync"
 	"time"
-	"encoding/json"
+
 	// "strings"
 	// "http-servidor/handlers"
 	"http-servidor/utils"
@@ -28,12 +29,11 @@ type Request struct {
 }
 
 type Server struct {
-	ServerId int
-	FastPool *WorkerPool
-	SlowPool *WorkerPool
-	Metrics  *Metricas
-	listener net.Listener  // Socket subyacente
-	doneChan chan struct{} // Para shutdown
+	ServerId     int
+	CommandPools map[string]*WorkerPool
+	Metrics      *Metricas
+	listener     net.Listener  // Socket subyacente
+	doneChan     chan struct{} // Para shutdown
 }
 
 type Metricas struct {
@@ -48,9 +48,22 @@ const PORT = ":8080"
 func NewServer() *Server {
 	return &Server{
 		ServerId: 1,
-		FastPool: NewWorkerPool(3),  // 3 workers rápidos
-		SlowPool: NewWorkerPool(10), // 10 workers lentos
-		Metrics: &Metricas{TiempoInicio: time.Now(),
+		CommandPools: map[string]*WorkerPool{
+			"/help":       NewWorkerPool(2),
+			"/timestamp":  NewWorkerPool(2),
+			"/fibonacci":  NewWorkerPool(3),
+			"/reverse":    NewWorkerPool(2),
+			"/toupper":    NewWorkerPool(2),
+			"/hash":       NewWorkerPool(2),
+			"/random":     NewWorkerPool(2),
+			"/simulate":   NewWorkerPool(3),
+			"/sleep":      NewWorkerPool(3),
+			"/loadtest":   NewWorkerPool(3),
+			"/createfile": NewWorkerPool(3),
+			"/deletefile": NewWorkerPool(3),
+		},
+		Metrics: &Metricas{
+			TiempoInicio:  time.Now(),
 			TotalRequests: 0,
 			ActWorkers:    0,
 		},
@@ -58,43 +71,45 @@ func NewServer() *Server {
 	}
 }
 
-func GetFastWorkers(server *Server) []map[string]interface{} {
-	var workers []map[string]interface{}
-	for _, w := range server.FastPool.Workers {
-		task := "ninguna"
-		if w.ReqActual != nil {
-			task = w.ReqActual.Ruta
+/*
+	func GetFastWorkers(server *Server) []map[string]interface{} {
+		var workers []map[string]interface{}
+		for _, w := range server.FastPool.Workers {
+			task := "ninguna"
+			if w.ReqActual != nil {
+				task = w.ReqActual.Ruta
+			}
+			workers = append(workers, map[string]interface{}{
+				"pid":   w.ID,
+				"task":  task,
+				"state": w.Status,
+			})
 		}
-		workers = append(workers, map[string]interface{}{
-			"pid":   w.ID,
-			"task":  task,
-			"state": w.Status,
-		})
+		return workers
 	}
-	return workers
-}
 
-func GetSlowWorkers(server *Server) []map[string]interface{} {
-	var workers []map[string]interface{}
-	for _, w := range server.SlowPool.Workers {
-		task := "ninguna"
-		if w.ReqActual != nil {
-			task = w.ReqActual.Ruta
+	func GetSlowWorkers(server *Server) []map[string]interface{} {
+		var workers []map[string]interface{}
+		for _, w := range server.SlowPool.Workers {
+			task := "ninguna"
+			if w.ReqActual != nil {
+				task = w.ReqActual.Ruta
+			}
+			workers = append(workers, map[string]interface{}{
+				"pid":   w.ID,
+				"task":  task,
+				"state": w.Status,
+			})
 		}
-		workers = append(workers, map[string]interface{}{
-			"pid":   w.ID,
-			"task":  task,
-			"state": w.Status,
-		})
+		return workers
 	}
-	return workers
-}
-
+*/
 func main() {
 
 	Server := NewServer()
-	Server.FastPool.Start()
-	Server.SlowPool.Start()
+	for _, pool := range Server.CommandPools {
+		pool.Start()
+	}
 
 	ln, err := net.Listen("tcp", PORT)
 	if err != nil {
@@ -149,35 +164,29 @@ func handleConnection(conn net.Conn, server *Server) {
 
 	print("Request ID: ", newRequest.ID, " Ruta: ", newRequest.Ruta, "\n")
 
-	switch route {
-
-	case "/help", "/timestamp", "/reverse", "/toupper", "/hash", "/random":
-		server.FastPool.RequestChan <- newRequest
-
-	case "/fibonacci", "/simulate", "/sleep", "/loadtest", "/createfile", "/deletefile":
-		server.SlowPool.RequestChan <- newRequest
-
-	case "/status":
-		// el estado del servidor
+	if route == "/status" {
+		// Manejo especial para la ruta /status
 		data := map[string]interface{}{
-			"uptime":              server.Metrics.TiempoInicio,
-			"main_pid":            server.ServerId,
-			"total_connections":   server.Metrics.TotalRequests,
-			"fast workers":        GetFastWorkers(server),
-			"slow workers":        GetSlowWorkers(server),
+			"uptime":            server.Metrics.TiempoInicio,
+			"main_pid":          server.ServerId,
+			"total_connections": server.Metrics.TotalRequests,
+			//"fast workers":      GetFastWorkers(server),
+			//"slow workers":      GetSlowWorkers(server),
 		}
-	
+
 		jsonData, err := json.MarshalIndent(data, "", "  ")
 		if err != nil {
 			utils.SendResponse(conn, "500 Internal Server Error", "Error generando JSON")
 			return
 		}
-	
-		utils.SendJSON(conn, "200 OK", jsonData)
 
-	default:
+		utils.SendJSON(conn, "200 OK", jsonData)
+	} else if pool, exists := server.CommandPools[route]; exists {
+		// Enviar la solicitud al pool correspondiente
+		pool.RequestChan <- newRequest
+	} else {
+		// Ruta no encontrada
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
 	}
-
 	newRequest.Listo <- true
 }
