@@ -9,27 +9,32 @@ import (
 )
 
 func Random(conn net.Conn, min string, max string, cantidad string) {
-	print("Random handler called\n")
-
-	fmt.Println("Min:", min)
-	fmt.Println("Max:", max)
-	fmt.Println("Cantidad:", cantidad)
 
 	cantidadI, err := strconv.Atoi(cantidad)
 	if err != nil {
-		utils.SendResponse(conn, "400 Bad Request", "Cantidad debe ser un numero valido")
+		utils.SendResponse(conn, "400 Bad Request", "Cantidad debe ser un numero valido\n")
 		return
 	}
 
 	minI, err := strconv.Atoi(min)
 	if err != nil {
-		utils.SendResponse(conn, "400 Bad Request", "El numero minimo debe ser un numero valido")
+		utils.SendResponse(conn, "400 Bad Request", "El numero minimo debe ser un numero valido\n")
 		return
 	}
 
 	maxI, err := strconv.Atoi(max)
 	if err != nil {
-		utils.SendResponse(conn, "400 Bad Request", "El numero maximo debe ser un numero valido")
+		utils.SendResponse(conn, "400 Bad Request", "El numero maximo debe ser un numero valido\n")
+		return
+	}
+
+	if(cantidadI <= 0){
+		utils.SendResponse(conn, "400 Bad Request", "La cantidad debe ser un numero entero positivo\n")
+		return
+	}
+
+	if(minI >= maxI){
+		utils.SendResponse(conn, "400 Bad Request", "El minimo debe ser menor al maximo\n")
 		return
 	}
 

@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"http-servidor/utils"
 	"net"
+	"strings"
 )
 
 func Hash(conn net.Conn, text string) {
-	print("Hash handler called\n")
-	println("Text:", text)
+
+	if strings.TrimSpace(text) == "" {
+        utils.SendResponse(conn, "400 Bad Request", "Texto no puede ser vacio\n")
+        return
+    }
 
 	hash := sha256.New()
 	hash.Write([]byte(text))
@@ -18,9 +22,8 @@ func Hash(conn net.Conn, text string) {
 	hashedHex := fmt.Sprintf("%x", hashedText)
 
 	body := "El hash SHA-256 del texto es:\n\n"
-	body += hashedHex
+	body += hashedHex + "\n"
+
 	utils.SendResponse(conn, "200 OK", body)
-	fmt.Println("Hash response sent")
-	//conn.Close()
 
 }

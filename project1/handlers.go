@@ -43,6 +43,7 @@ func HandleRequest(req Request) {
 
 	case "/loadtest":
 		handlers.Loadtest(req.Conn, req.Parametros["tasks"], req.Parametros["sleep"])
+		
 	default:
 		utils.SendResponse(req.Conn, "404 Not Found", "Ruta no encontrada")
 	}

@@ -8,11 +8,10 @@ import (
 )
 
 func Simulate(conn net.Conn, seconds string, nombre string) {
-	print("Simulate handler called\n")
 
 	secondsI, err := strconv.Atoi(seconds)
-	if err != nil {
-		utils.SendResponse(conn, "400 Bad Request", "Seconds debe ser un numero valido")
+	if err != nil || secondsI <= 0 {
+		utils.SendResponse(conn, "400 Bad Request", "Seconds debe ser un numero valido, entero y positivo\n")
 		return
 	}
 
@@ -22,5 +21,6 @@ func Simulate(conn net.Conn, seconds string, nombre string) {
 	body += "Nombre de la tarea: " + nombre + "\n"
 	body += "Duracion: " + seconds + " segundos\n"
 	body += "Hora de finalizacion: " + time.Now().Format(time.RFC1123) + "\n"
+	
 	utils.SendResponse(conn, "200 OK", body)
 }

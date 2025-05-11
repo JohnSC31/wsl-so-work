@@ -12,13 +12,13 @@ import (
 func Loadtest(conn net.Conn, tasks string, sleep string) {
 	tasksI, err := strconv.Atoi(tasks)
 	if err != nil || tasksI < 1 {
-		utils.SendResponse(conn, "400 Bad Request", "El parametro 'tasks' debe ser un número valido mayor que 0")
+		utils.SendResponse(conn, "400 Bad Request", "El parametro 'tasks' debe ser un número valido mayor que 0\n")
 		return
 	}
 
 	sleepI, err := strconv.Atoi(sleep)
 	if err != nil || sleepI < 0 {
-		utils.SendResponse(conn, "400 Bad Request", "El parametro 'sleep' debe ser un numero valido")
+		utils.SendResponse(conn, "400 Bad Request", "El parametro 'sleep' debe ser un numero valido\n")
 		return
 	}
 
