@@ -1,21 +1,16 @@
 package main
 
-// Pruebas unitarias
-// Status
-//
-
 import (
-	// "fmt"
 	"encoding/json"
 	"log"
 	"net"
 	"sync"
 	"time"
-
-	// "strings"
-	// "http-servidor/handlers"
 	"http-servidor/utils"
 )
+
+// CONSTANTES
+const PORT = ":8080"
 
 // Structs
 // Request
@@ -27,7 +22,7 @@ type Request struct {
 	TiempoInicio time.Time
 	Listo        chan bool
 }
-
+// Server
 type Server struct {
 	ServerId     int
 	CommandPools map[string]*WorkerPool
@@ -36,6 +31,7 @@ type Server struct {
 	doneChan     chan struct{} // Para shutdown
 }
 
+// Metricas del servidor
 type Metricas struct {
 	Mu            sync.Mutex
 	TiempoInicio  time.Time
@@ -43,8 +39,7 @@ type Metricas struct {
 	ActWorkers    int
 }
 
-const PORT = ":8080"
-
+// Funcion para inicializar el servidor
 func NewServer() *Server {
 	return &Server{
 		ServerId: 1,
@@ -71,6 +66,7 @@ func NewServer() *Server {
 	}
 }
 
+
 func main() {
 
 	Server := NewServer()
@@ -95,6 +91,8 @@ func main() {
 	}
 }
 
+
+// Funcion encargada de gestionar las solicitudes que le llegan al servidor
 func handleConnection(conn net.Conn, server *Server) {
 	defer conn.Close()
 
@@ -145,7 +143,7 @@ func handleConnection(conn net.Conn, server *Server) {
 	newRequest.Listo <- true
 }
 
-
+// Funcion encargada de generar el estado del servidor y retornar la respuesta en formato JSON
 func serverStatus(conn net.Conn, s *Server) {
     s.Metrics.Mu.Lock()
     uptime := time.Since(s.Metrics.TiempoInicio).Truncate(time.Second).String()
