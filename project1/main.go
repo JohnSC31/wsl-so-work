@@ -71,39 +71,6 @@ func NewServer() *Server {
 	}
 }
 
-/*
-	func GetFastWorkers(server *Server) []map[string]interface{} {
-		var workers []map[string]interface{}
-		for _, w := range server.FastPool.Workers {
-			task := "ninguna"
-			if w.ReqActual != nil {
-				task = w.ReqActual.Ruta
-			}
-			workers = append(workers, map[string]interface{}{
-				"pid":   w.ID,
-				"task":  task,
-				"state": w.Status,
-			})
-		}
-		return workers
-	}
-
-	func GetSlowWorkers(server *Server) []map[string]interface{} {
-		var workers []map[string]interface{}
-		for _, w := range server.SlowPool.Workers {
-			task := "ninguna"
-			if w.ReqActual != nil {
-				task = w.ReqActual.Ruta
-			}
-			workers = append(workers, map[string]interface{}{
-				"pid":   w.ID,
-				"task":  task,
-				"state": w.Status,
-			})
-		}
-		return workers
-	}
-*/
 func main() {
 
 	Server := NewServer()
@@ -165,22 +132,9 @@ func handleConnection(conn net.Conn, server *Server) {
 	print("Request ID: ", newRequest.ID, " Ruta: ", newRequest.Ruta, "\n")
 
 	if route == "/status" {
-		// Manejo especial para la ruta /status
-		data := map[string]interface{}{
-			"uptime":            server.Metrics.TiempoInicio,
-			"main_pid":          server.ServerId,
-			"total_connections": server.Metrics.TotalRequests,
-			//"fast workers":      GetFastWorkers(server),
-			//"slow workers":      GetSlowWorkers(server),
-		}
 
-		jsonData, err := json.MarshalIndent(data, "", "  ")
-		if err != nil {
-			utils.SendResponse(conn, "500 Internal Server Error", "Error generando JSON")
-			return
-		}
+		serverStatus(conn, server)
 
-		utils.SendJSON(conn, "200 OK", jsonData)
 	} else if pool, exists := server.CommandPools[route]; exists {
 		// Enviar la solicitud al pool correspondiente
 		pool.RequestChan <- newRequest
@@ -189,4 +143,50 @@ func handleConnection(conn net.Conn, server *Server) {
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
 	}
 	newRequest.Listo <- true
+}
+
+
+func serverStatus(conn net.Conn, s *Server) {
+    s.Metrics.Mu.Lock()
+    uptime := time.Since(s.Metrics.TiempoInicio).Truncate(time.Second).String()
+    totalRequests := s.Metrics.TotalRequests
+    s.Metrics.Mu.Unlock()
+	totalWorkers := 0
+
+    // Armamos una estructura por comando
+    workersByCommand := make(map[string][]map[string]interface{})
+
+    for ruta, pool := range s.CommandPools {
+        var workers []map[string]interface{}
+        for _, w := range pool.Workers {
+            task := "ninguna"
+            if w.ReqActual != nil {
+                task = w.ReqActual.Ruta
+            }
+            workers = append(workers, map[string]interface{}{
+                "pid":   w.ID,
+                "task":  task,
+                "state": w.Status,
+            })
+			totalWorkers += 1
+        }
+        workersByCommand[ruta] = workers
+    }
+
+    // Estado global
+    data := map[string]interface{}{
+        "uptime":            uptime,
+        "main_pid":          s.ServerId,
+        "total_connections": totalRequests,
+		"total_workers": totalWorkers,
+        "workers":           workersByCommand,
+    }
+
+    jsonData, err := json.MarshalIndent(data, "", "  ")
+    if err != nil {
+        utils.SendResponse(conn, "500 Internal Server Error", "Error generando JSON")
+        return
+    }
+
+    utils.SendJSON(conn, "200 OK", jsonData)
 }
