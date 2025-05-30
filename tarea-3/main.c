@@ -1,193 +1,210 @@
 #include <stdio.h>
 #include <stddef.h>
 
-#define MEMORY_SIZE 1024 * 1024  // 1MB de bloque de memoria
-#define MAX_BLOQUES 100
+// #define MEMORY_SIZE 1024 * 1024  // 1MB de bloque de memoria
+#define MEMORY_SIZE 1000
+#define MAX_BLOCKS 100
+#define SEARCH_ALGORITHM 1 // 1 First fit, 2 Best fit, 3 Worst fit
 
 typedef struct {
-    char nombre[20];    // Nombre de la variable
+    char name[20];    // Nombre de la variable
     size_t size;        // Tamaño asignado
     size_t start;       // Inicio del bloque (offset en memoria)
-    int libre;          // 1 si está libre, 0 si está ocupado
-} Bloque;
+    int isFree;          // 1 si está libre, 0 si está ocupado
+} Block;
 
-Bloque bloques[MAX_BLOQUES];    // Lista de bloques
-int num_bloques = 0;
-char *memoria;
+Block blockList[MAX_BLOCKS];    // Lista de bloques
+int num_blocks = 0;
+char *memory;
 
-void inicializar_memoria() {
-    memoria = malloc(MEMORY_SIZE);
-    if (!memoria) {
+void init_memory() {
+    memory = malloc(MEMORY_SIZE);
+    if (!memory) {
         perror("No se pudo asignar memoria principal");
         exit(1);
     }
 
     // Crear el primer bloque libre con toda la memoria
-    strcpy(bloques[0].nombre, ""); 
-    bloques[0].size = MEMORY_SIZE;
-    bloques[0].start = 0;
-    bloques[0].libre = 1;
-    num_bloques = 1;
+    strcpy(blockList[0].name, ""); 
+    blockList[0].size = MEMORY_SIZE;
+    blockList[0].start = 0;
+    blockList[0].isFree = 1;
+    num_blocks = 1;
 }
 
-int buscar_bloque_libre(size_t size) {
-    for (int i = 0; i < num_bloques; i++) {
-        if (bloques[i].libre && bloques[i].size >= size) {
-            return i;
+// Buscar un bloque libre
+int search_free_block(size_t size){
+
+    if(SEARCH_ALGORITHM == 1){
+        // FIRST FIT
+        for (int i = 0; i < num_blocks; i++) {
+            if (blockList[i].isFree && blockList[i].size >= size) {
+                return i;
+            }
         }
     }
+
+    if(SEARCH_ALGORITHM == 2){
+        // BEST FIT
+    }
+
+    if(SEARCH_ALGORITHM == 3){
+        // WORST FIT
+    }
+    
     return -1;
 }
 
-// ALLOC 
-void asignar_bloque(const char *nombre, size_t size) {
-    int idx = buscar_bloque_libre(size);
+// ALLOC recibe el nombre y el tamano del bloque por asignar
+void alloc_block(const char *name, size_t size){
+    int idx = search_free_block(size);
     if (idx == -1) {
-        printf("No hay espacio para %s (%zu bytes)\n", nombre, size);
+        printf("No hay espacio para %s (%zu bytes)\n", name, size);
         return;
     }
 
-    Bloque *b = &bloques[idx];
+    Block *b = &blockList[idx];
 
     // Dividir el bloque si sobra espacio
     if (b->size > size) {
-        for (int i = num_bloques; i > idx + 1; i--) {
-            bloques[i] = bloques[i - 1];
+        // mueve la lista un bloque hacia adelante
+        for (int i = num_blocks; i > idx + 1; i--) {
+            blockList[i] = blockList[i - 1];
         }
 
-        bloques[idx + 1].start = b->start + size;
-        bloques[idx + 1].size = b->size - size;
-        bloques[idx + 1].libre = 1;
-        strcpy(bloques[idx + 1].nombre, "");
+        blockList[idx + 1].start = b->start + size;
+        blockList[idx + 1].size = b->size - size;
+        blockList[idx + 1].isFree = 1;
+        strcpy(blockList[idx + 1].name, "");
 
-        num_bloques++;
+        num_blocks++;
     }
 
     b->size = size;
-    b->libre = 0;
-    strncpy(b->nombre, nombre, sizeof(b->nombre));
+    b->isFree = 0;
+    strncpy(b->name, name, sizeof(b->name) - 1);
+    b->name[sizeof(b->name) - 1 ] = '\0';
 
     // Rellenar la memoria con el nombre
     for (size_t i = 0; i < size; i++) {
-        memoria[b->start + i] = nombre[0];
+        memory[b->start + i] = name[0];
     }
 }
 
-// REALLOC
-void realloc_bloque(const char *nombre, size_t nuevo_tamano) {
-    for (int i = 0; i < num_bloques; i++) {
-        if (!bloques[i].libre && strcmp(bloques[i].nombre, nombre) == 0) {
-            // Guardar datos si es necesario (opcional)
-            size_t viejo_tamano = bloques[i].size;
+// FREE recibe el nombre de una variable y lo libera
+void free_block(const char *name){
 
-            // Liberar el actual
-            liberar_bloque(nombre);
-
-            // Asignar nuevo
-            asignar_bloque(nombre, nuevo_tamano);
-
-            printf("Reasignado %s de %zu a %zu bytes\n", nombre, viejo_tamano, nuevo_tamano);
-            return;
-        }
-    }
-
-    printf("Variable %s no encontrada\n", nombre);
-}
-
-
-// FREE
-void liberar_bloque(const char *nombre) {
-
-    for (int i = 0; i < num_bloques; i++) {
-        if (!bloques[i].libre && strcmp(bloques[i].nombre, nombre) == 0) {
-            bloques[i].libre = 1;
-            strcpy(bloques[i].nombre, "");
+    for (int i = 0; i < num_blocks; i++) {
+        if (!blockList[i].isFree && strcmp(blockList[i].name, name) == 0) {
+            blockList[i].isFree = 1;
+            strcpy(blockList[i].name, "");
 
             // Rellenar con '-'
-            for (size_t j = 0; j < bloques[i].size; j++) {
-                memoria[bloques[i].start + j] = '-';
+            for (size_t j = 0; j < blockList[i].size; j++) {
+                memory[blockList[i].start + j] = '-';
             }
 
             // Intentar fusionar con siguiente
-            if (i + 1 < num_bloques && bloques[i + 1].libre) {
-                bloques[i].size += bloques[i + 1].size;
-                for (int j = i + 1; j < num_bloques - 1; j++) {
-                    bloques[j] = bloques[j + 1];
+            if (i + 1 < num_blocks && blockList[i + 1].isFree) {
+                blockList[i].size += blockList[i + 1].size;
+                for (int j = i + 1; j < num_blocks - 1; j++) {
+                    blockList[j] = blockList[j + 1];
                 }
-                num_bloques--;
+                num_blocks--;
+                i--;
             }
 
             // Intentar fusionar con anterior
-            if (i > 0 && bloques[i - 1].libre) {
-                bloques[i - 1].size += bloques[i].size;
-                for (int j = i; j < num_bloques - 1; j++) {
-                    bloques[j] = bloques[j + 1];
+            if (i > 0 && blockList[i - 1].isFree) {
+                blockList[i - 1].size += blockList[i].size;
+                for (int j = i; j < num_blocks - 1; j++) {
+                    blockList[j] = blockList[j + 1];
                 }
-                num_bloques--;
+                num_blocks--;
+                i--;
             }
 
-            printf("Liberado %s\n", nombre);
+            // printf("Liberado %s\n", name);
             return;
         }
     }
 
-    printf("Variable %s no encontrada\n", nombre);
+    // printf("Variable %s no encontrada\n", name);
 }
 
-int first_fit(size_t size) {
-    for (int i = 0; i < num_bloques; i++) {
-        if (bloques[i].libre && bloques[i].size >= size) {
-            return i;
+// REALLOC recibe el nombre del bloque y el nuevo tamanno
+void realloc_block(const char *name, size_t new_size){
+
+    for (int i = 0; i < num_blocks; i++) {
+        if (!blockList[i].isFree && strcmp(blockList[i].name, name) == 0) {
+            // Guardar datos si es necesario (opcional)
+            size_t old_size = blockList[i].size;
+
+            // Liberar el actual
+            free_block(name);
+
+            // Asignar nuevo
+            alloc_block(name, new_size);
+
+            // printf("Reasignado %s de %zu a %zu bytes\n", name, old_size, new_size);
+            return;
         }
     }
-    return -1;
+
+    // printf("Variable %s no encontrada\n", name);
 }
 
-void procesar_archivo(char *nombre_archivo) {
-    FILE *archivo = fopen(nombre_archivo, "r");
-    if (!archivo) {
+void print_status() {
+    
+    for (int i = 0; i < num_blocks; i++) {
+        printf("[%s] Inicio: %zu, Tamaño: %zu, %s\n",
+            blockList[i].name,
+            blockList[i].start,
+            blockList[i].size,
+            blockList[i].isFree ? "Libre" : "Ocupado");
+    }
+}
+
+void process_file(char *file_name){
+     FILE *file = fopen(file_name, "r");
+    if (!file) {
         perror("Error al abrir el archivo");
         exit(1);
     }
+    init_memory();
 
-    inicializar_memoria();
+    char fileLine[100];
+    while (fgets(fileLine, sizeof(fileLine), file)) {
 
-    char linea[100];
-    while (fgets(linea, sizeof(linea), archivo)) {
-        if (linea[0] == '#' || strlen(linea) < 2) continue;
+        if (fileLine[0] == '#' || strlen(fileLine) < 2) continue;
 
-        if (strncmp(linea, "ALLOC", 5) == 0) {
-            char nombre[20]; size_t size;
-            sscanf(linea, "ALLOC %s %zu", nombre, &size);
-            asignar_bloque(nombre, size);
+        if (strncmp(fileLine, "ALLOC", 5) == 0) {
+            // ALLOC block
+            char name[20]; size_t size;
+            sscanf(fileLine, "ALLOC %s %zu", name, &size);
+            alloc_block(name, size);
 
-        } else if (strncmp(linea, "REALLOC", 7) == 0) {
-            char nombre[20]; size_t new_size;
-            sscanf(linea, "ALLOC %s %zu", nombre, &new_size);
-            realloc_bloque(nombre, new_size);
+        } else if (strncmp(fileLine, "REALLOC", 7) == 0) {
+            // REALLOC block
+            char name[20]; size_t new_size;
+            sscanf(fileLine, "REALLOC %s %zu", name, &new_size);
+            realloc_block(name, new_size);
 
-        } else if (strncmp(linea, "FREE", 4) == 0) {
-             char nombre[20];
-            sscanf(linea, "ALLOC %s %zu", nombre);
-            liberar_bloque(nombre);
+        } else if (strncmp(fileLine, "FREE", 4) == 0) {
+            // FREE block
+             char name[20];
+            sscanf(fileLine, "FREE %s %zu", name);
+            free_block(name);
 
-        } else if (strncmp(linea, "PRINT", 5) == 0) {
-            imprimir_estado();
+        } else if (strncmp(fileLine, "PRINT", 5) == 0) {
+            // print 
+            //print_status();
         }
+        printf(fileLine,'\n');
+        print_status();
     }
 
-    fclose(archivo);
-}
-
-void imprimir_estado() {
-    printf("Estado de la memoria:\n");
-    for (int i = 0; i < num_bloques; i++) {
-        printf("[%s] Inicio: %zu, Tamaño: %zu, %s\n",
-            bloques[i].nombre,
-            bloques[i].start,
-            bloques[i].size,
-            bloques[i].libre ? "Libre" : "Ocupado");
-    }
+    fclose(file);
 }
 
 int main(int argc, char *argv[]) {
@@ -198,7 +215,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Procesar el archivo
-    procesar_archivo(argv[1]);
+    process_file(argv[1]);
 
     return 0;
 }
