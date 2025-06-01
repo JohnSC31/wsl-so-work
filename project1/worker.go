@@ -27,7 +27,7 @@ func (w *Worker) Start(wp *WorkerPool) {
 	defer wp.Wg.Done()
 	for {
 		// 1. Notificar al pool que este worker está disponible
-		wp.WorkerChan <- w.RequestChan // <- Corrección aquí (W mayúscula)
+		wp.WorkerChan <- w.RequestChan 
 
 		select {
 		case req := <-w.RequestChan:
