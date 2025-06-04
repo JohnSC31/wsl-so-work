@@ -53,7 +53,6 @@ int search_free_block(size_t size)
         }
     }
 
-    // AQUI TENGO QUE IMPLEMENTAR LOS ALGORITMOS QUE ME TOCAN
     if (SEARCH_ALGORITHM == 2)
     {
         int best_index = -1;
@@ -63,7 +62,7 @@ int search_free_block(size_t size)
         {
             if (blockList[i].isFree && blockList[i].size >= size)
             {
-                // Si encontramos un bloque más pequeño que el mejor actual
+                // Si se encuentra un bloque más pequeño que el mejor actual
                 if (blockList[i].size < best_size)
                 {
                     best_index = i;
