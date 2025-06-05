@@ -6,7 +6,7 @@
 // #define MEMORY_SIZE 1024 * 1024  // 1MB de bloque de memoria
 #define MEMORY_SIZE 1000
 #define MAX_BLOCKS 100
-#define SEARCH_ALGORITHM 3 // 1 First fit, 2 Best fit, 3 Worst fit
+#define SEARCH_ALGORITHM 1 // 1 First fit, 2 Best fit, 3 Worst fit
 
 typedef struct
 {
@@ -44,10 +44,8 @@ int search_free_block(size_t size)
     if (SEARCH_ALGORITHM == 1)
     {
         // FIRST FIT
-        for (int i = 0; i < num_blocks; i++)
-        {
-            if (blockList[i].isFree && blockList[i].size >= size)
-            {
+        for (int i = 0; i < num_blocks; i++){
+            if (blockList[i].isFree && blockList[i].size >= size){
                 return i;
             }
         }
@@ -158,7 +156,6 @@ void free_block(const char *name)
                     blockList[j] = blockList[j + 1];
                 }
                 num_blocks--;
-                i--;
             }
 
             // Intentar fusionar con anterior
@@ -170,7 +167,6 @@ void free_block(const char *name)
                     blockList[j] = blockList[j + 1];
                 }
                 num_blocks--;
-                i--;
             }
 
             // printf("Liberado %s\n", name);
@@ -197,7 +193,6 @@ void realloc_block(const char *name, size_t new_size)
 
             // Asignar nuevo
             alloc_block(name, new_size);
-
             // printf("Reasignado %s de %zu a %zu bytes\n", name, old_size, new_size);
             return;
         }
@@ -206,8 +201,7 @@ void realloc_block(const char *name, size_t new_size)
     // printf("Variable %s no encontrada\n", name);
 }
 
-void print_status()
-{
+void print_status(){
     printf("\nEstado de la memoria (Total: %d bytes):\n", MEMORY_SIZE);
     printf("+-----------------------+---------------+\n");
     printf("| Bloque                | Tamanno (bytes)|\n");
@@ -261,8 +255,9 @@ void print_status()
     printf("- Memoria usada: %zu bytes (%.1f%%)\n", used, (float)used / MEMORY_SIZE * 100);
     printf("- Memoria libre: %zu bytes (%.1f%%)\n", MEMORY_SIZE - used, (float)(MEMORY_SIZE - used) / MEMORY_SIZE * 100);
 }
-void process_file(char *file_name)
-{
+
+void process_file(char *file_name){
+
     FILE *file = fopen(file_name, "r");
     if (!file)
     {
@@ -304,17 +299,16 @@ void process_file(char *file_name)
         else if (strncmp(fileLine, "PRINT", 5) == 0)
         {
             // print
-            // print_status();
+            print_status();
         }
-        printf(fileLine, '\n');
-        print_status();
+        // printf(fileLine, '\n');
+        // print_status();
     }
 
     fclose(file);
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]){
 
     if (argc < 2)
     {
