@@ -15,6 +15,7 @@ func HandleRequest(req Request) {
 		handlers.Timestamp(req.Conn)
 
 	case "/fibonacci":
+		print("Fibonacci request received\n")
 		handlers.Fibonacci(req.Conn, req.Parametros)
 
 	case "/createfile":
@@ -43,7 +44,10 @@ func HandleRequest(req Request) {
 
 	case "/loadtest":
 		handlers.Loadtest(req.Conn, req.Parametros["tasks"], req.Parametros["sleep"])
-		
+
+	case "/ping":
+		handlers.HandlePing(req.Conn)
+
 	default:
 		utils.SendResponse(req.Conn, "404 Not Found", "Ruta no encontrada")
 	}

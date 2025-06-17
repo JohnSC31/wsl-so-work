@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  dispatcher:
+    build: ./dispatcher
+    ports:
+      - "8080:8080"  # Puerto público del dispatcher
+
+  worker1:
+    build: ./server
+    #ports:
+    #  - "8081:8080"  # Puerto externo:interno
+    
+    environment:
+      - PORT=8080
+
+  worker2:
+    build: ./server
+    #ports:
+    #  - "8082:8080"
+    
+    environment:
+      - PORT=8080
+
+  worker3:
+    build: ./server
+    
+    #ports:
+     # - "8083:8080"
+
+    environment:
+      - PORT=8080

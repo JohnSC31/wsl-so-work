@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"http-servidor/utils"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
-	"http-servidor/utils"
 )
 
 // CONSTANTES
@@ -22,6 +23,7 @@ type Request struct {
 	TiempoInicio time.Time
 	Listo        chan bool
 }
+
 // Server
 type Server struct {
 	ServerId     int
@@ -56,6 +58,7 @@ func NewServer() *Server {
 			"/loadtest":   NewWorkerPool(3),
 			"/createfile": NewWorkerPool(3),
 			"/deletefile": NewWorkerPool(3),
+			"/ping":       NewWorkerPool(2),
 		},
 		Metrics: &Metricas{
 			TiempoInicio:  time.Now(),
@@ -66,10 +69,15 @@ func NewServer() *Server {
 	}
 }
 
-
 func main() {
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Puerto por defecto
+	}
+
 	Server := NewServer()
+	log.Printf("Servidor iniciado en :%s", port)
 	for _, pool := range Server.CommandPools {
 		pool.Start()
 	}
@@ -91,8 +99,7 @@ func main() {
 	}
 }
 
-
-// Funcion encargada de gestionar las solicitudes que le llegan al servidor
+// Gestion las solicitudes que le llegan al servidor
 func handleConnection(conn net.Conn, server *Server) {
 	defer conn.Close()
 
@@ -143,48 +150,48 @@ func handleConnection(conn net.Conn, server *Server) {
 	newRequest.Listo <- true
 }
 
-// Funcion encargada de generar el estado del servidor y retornar la respuesta en formato JSON
+// Genera el estado del servidor y retornar la respuesta en formato JSON
 func serverStatus(conn net.Conn, s *Server) {
-    s.Metrics.Mu.Lock()
-    uptime := time.Since(s.Metrics.TiempoInicio).Truncate(time.Second).String()
-    totalRequests := s.Metrics.TotalRequests
-    s.Metrics.Mu.Unlock()
+	s.Metrics.Mu.Lock()
+	uptime := time.Since(s.Metrics.TiempoInicio).Truncate(time.Second).String()
+	totalRequests := s.Metrics.TotalRequests
+	s.Metrics.Mu.Unlock()
 	totalWorkers := 0
 
-    // Armamos una estructura por comando
-    workersByCommand := make(map[string][]map[string]interface{})
+	// Armamos una estructura por comando
+	workersByCommand := make(map[string][]map[string]interface{})
 
-    for ruta, pool := range s.CommandPools {
-        var workers []map[string]interface{}
-        for _, w := range pool.Workers {
-            task := "ninguna"
-            if w.ReqActual != nil {
-                task = w.ReqActual.Ruta
-            }
-            workers = append(workers, map[string]interface{}{
-                "pid":   w.ID,
-                "task":  task,
-                "state": w.Status,
-            })
+	for ruta, pool := range s.CommandPools {
+		var workers []map[string]interface{}
+		for _, w := range pool.Workers {
+			task := "ninguna"
+			if w.ReqActual != nil {
+				task = w.ReqActual.Ruta
+			}
+			workers = append(workers, map[string]interface{}{
+				"pid":   w.ID,
+				"task":  task,
+				"state": w.Status,
+			})
 			totalWorkers += 1
-        }
-        workersByCommand[ruta] = workers
-    }
+		}
+		workersByCommand[ruta] = workers
+	}
 
-    // Estado global
-    data := map[string]interface{}{
-        "uptime":            uptime,
-        "main_pid":          s.ServerId,
-        "total_connections": totalRequests,
-		"total_workers": totalWorkers,
-        "workers":           workersByCommand,
-    }
+	// Estado global
+	data := map[string]interface{}{
+		"uptime":            uptime,
+		"main_pid":          s.ServerId,
+		"total_connections": totalRequests,
+		"total_workers":     totalWorkers,
+		"workers":           workersByCommand,
+	}
 
-    jsonData, err := json.MarshalIndent(data, "", "  ")
-    if err != nil {
-        utils.SendResponse(conn, "500 Internal Server Error", "Error generando JSON")
-        return
-    }
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		utils.SendResponse(conn, "500 Internal Server Error", "Error generando JSON")
+		return
+	}
 
-    utils.SendJSON(conn, "200 OK", jsonData)
+	utils.SendJSON(conn, "200 OK", jsonData)
 }
