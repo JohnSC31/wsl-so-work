@@ -11,8 +11,7 @@ function test() {
     local command="$2"
     echo -e "\n🔸 $desc"
     echo "→ $command"
-    response=$(eval "$command")
-    echo "$response"
+    eval "$command"
     echo "---------------------------------------"
 }
 
