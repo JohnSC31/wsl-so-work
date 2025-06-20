@@ -2,39 +2,40 @@ package handlers
 
 import (
 	"fmt"
-	"http-servidor/utils"
 	"math/rand"
 	"net"
 	"strconv"
 )
 
-func Random(conn net.Conn, min string, max string, cantidad string) {
+type SendResponseFunc func(conn net.Conn, status string, body string)
+
+func Random(conn net.Conn, min string, max string, cantidad string, sendResponse SendResponseFunc) {
 
 	cantidadI, err := strconv.Atoi(cantidad)
 	if err != nil {
-		utils.SendResponse(conn, "400 Bad Request", "Cantidad debe ser un numero valido\n")
+		sendResponse(conn, "400 Bad Request", "Cantidad debe ser un numero valido\n")
 		return
 	}
 
 	minI, err := strconv.Atoi(min)
 	if err != nil {
-		utils.SendResponse(conn, "400 Bad Request", "El numero minimo debe ser un numero valido\n")
+		sendResponse(conn, "400 Bad Request", "El numero minimo debe ser un numero valido\n")
 		return
 	}
 
 	maxI, err := strconv.Atoi(max)
 	if err != nil {
-		utils.SendResponse(conn, "400 Bad Request", "El numero maximo debe ser un numero valido\n")
+		sendResponse(conn, "400 Bad Request", "El numero maximo debe ser un numero valido\n")
 		return
 	}
 
 	if(cantidadI <= 0){
-		utils.SendResponse(conn, "400 Bad Request", "La cantidad debe ser un numero entero positivo\n")
+		sendResponse(conn, "400 Bad Request", "La cantidad debe ser un numero entero positivo\n")
 		return
 	}
 
 	if(minI >= maxI){
-		utils.SendResponse(conn, "400 Bad Request", "El minimo debe ser menor al maximo\n")
+		sendResponse(conn, "400 Bad Request", "El minimo debe ser menor al maximo\n")
 		return
 	}
 
@@ -53,6 +54,6 @@ func Random(conn net.Conn, min string, max string, cantidad string) {
 	for i, num := range listaNumRandom {
 		body += fmt.Sprintf("%d\t%d\n", i+1, num)
 	}
-	utils.SendResponse(conn, "200 OK", body)
+	sendResponse(conn, "200 OK", body)
 
 }

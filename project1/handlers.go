@@ -30,7 +30,7 @@ func HandleRequest(req Request) {
 		handlers.ToUpper(req.Conn, req.Parametros)
 
 	case "/random":
-		handlers.Random(req.Conn, req.Parametros["min"], req.Parametros["max"], req.Parametros["count"])
+		handlers.Random(req.Conn, req.Parametros["min"], req.Parametros["max"], req.Parametros["count"], utils.SendResponse)
 
 	case "/hash":
 		handlers.Hash(req.Conn, req.Parametros["text"])
