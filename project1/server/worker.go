@@ -9,7 +9,7 @@ type Worker struct {
 	WorkerChan   chan chan Request
 	ReqActual    *Request
 	ShutDownChan chan struct{}
-	Status		string
+	Status       string
 }
 
 func NewWorker(id int, workerChan chan chan Request, requestChan chan Request) *Worker {
@@ -18,7 +18,7 @@ func NewWorker(id int, workerChan chan chan Request, requestChan chan Request) *
 		RequestChan:  requestChan,
 		WorkerChan:   workerChan,
 		ShutDownChan: make(chan struct{}),
-		Status: 	"disponible",
+		Status:       "disponible",
 	}
 }
 
@@ -27,7 +27,7 @@ func (w *Worker) Start(wp *WorkerPool) {
 	defer wp.Wg.Done()
 	for {
 		// 1. Notificar al pool que este worker está disponible
-		wp.WorkerChan <- w.RequestChan 
+		wp.WorkerChan <- w.RequestChan
 
 		select {
 		case req := <-w.RequestChan:
