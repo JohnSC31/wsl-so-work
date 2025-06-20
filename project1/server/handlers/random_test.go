@@ -85,7 +85,7 @@ func TestRandom_InvalidCantidad(t *testing.T) {
 	testStatus = ""
 	testBody = ""
 
-	Random(mockConn, "1", "10", "abc", mockSendResponse)
+	Random(mockConn, "3", "10", "abc", mockSendResponse)
 
 	if testStatus != "400 Bad Request" {
 		t.Errorf("Esperado status '400 Bad Request', obtenido '%s'", testStatus)
