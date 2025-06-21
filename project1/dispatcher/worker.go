@@ -10,13 +10,14 @@ type Worker struct {
 	ID            int
 	URL           string // Ej: "http://worker1:8080"
 	Status        bool
-	mu            sync.RWMutex // Usamos RWMutex para permitir lecturas concurrentes
+	mu            sync.RWMutex // RWMutex para permitir lecturas concurrentes
 	lastChecked   time.Time
 	activeTasks   int
 	maxCapacity   int        // Máximo de tareas concurrentes
 	taskQueue     chan *Task // Canal interno para manejar carga
 	healthChecker *time.Ticker
-	cargadas      int // Contador de tareas cargadas
+	cargadas      int        // Contador de tareas cargadas
+	tasksDone     chan *Task // Canal para tareas listas
 }
 
 func NewWorker(id int, url string, capacity int) *Worker {

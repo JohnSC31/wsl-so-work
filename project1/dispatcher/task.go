@@ -16,7 +16,7 @@ const (
 )
 
 type Task struct {
-	ID          int      // UUID sería mejor para distribución
+	ID          string   // UUID sería mejor para distribución
 	Conn        net.Conn // Conexión cliente original
 	Request     *Request // Datos de la solicitud
 	Response    []byte   // Respuesta del worker

@@ -147,7 +147,7 @@ func handleConnection(conn net.Conn, server *Server) {
 		// Ruta no encontrada
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
 	}
-	newRequest.Listo <- true
+
 }
 
 // Genera el estado del servidor y retornar la respuesta en formato JSON

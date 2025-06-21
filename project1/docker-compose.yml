@@ -4,29 +4,24 @@ services:
   dispatcher:
     build: ./dispatcher
     ports:
-      - "8080:8080"  # Puerto público del dispatcher
+      - "8080:8080"  # Solo el dispatcher es accesible desde el host
+    environment:
+      - PORT=8080
 
   worker1:
     build: ./server
-    #ports:
-    #  - "8081:8080"  # Puerto externo:interno
-    
     environment:
       - PORT=8080
+      - CALLBACK_URL=http://dispatcher:8080/callback  # Nombre del servicio "dispatcher"
 
   worker2:
     build: ./server
-    #ports:
-    #  - "8082:8080"
-    
     environment:
       - PORT=8080
+      - CALLBACK_URL=http://dispatcher:8080/callback
 
   worker3:
     build: ./server
-    
-    #ports:
-     # - "8083:8080"
-
     environment:
       - PORT=8080
+      - CALLBACK_URL=http://dispatcher:8080/callback
