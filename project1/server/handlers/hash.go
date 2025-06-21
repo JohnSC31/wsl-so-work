@@ -3,15 +3,14 @@ package handlers
 import (
 	"crypto/sha256"
 	"fmt"
-	"http-servidor/utils"
 	"net"
 	"strings"
 )
 
-func Hash(conn net.Conn, text string) {
+func Hash(conn net.Conn, text string, sendResponse SendResponseFunc) {
 
 	if strings.TrimSpace(text) == "" {
-        utils.SendResponse(conn, "400 Bad Request", "Texto no puede ser vacio\n")
+        sendResponse(conn, "400 Bad Request", "Texto no puede ser vacio\n")
         return
     }
 
@@ -24,6 +23,6 @@ func Hash(conn net.Conn, text string) {
 	body := "El hash SHA-256 del texto es:\n\n"
 	body += hashedHex + "\n"
 
-	utils.SendResponse(conn, "200 OK", body)
+	sendResponse(conn, "200 OK", body)
 
 }

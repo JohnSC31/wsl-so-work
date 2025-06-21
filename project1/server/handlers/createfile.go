@@ -10,19 +10,19 @@ import (
 
 // /createfile?name=filename&content=text&repeat=x
 
-func CreateFile(conn net.Conn, params map[string]string) {
+func CreateFile(conn net.Conn, params map[string]string, sendResponse SendResponseFunc) {
     name, nameOk := params["name"]
     content, contentOk := params["content"]
     repeatStr, repeatOk := params["repeat"]
 
     if !nameOk || !contentOk || !repeatOk {
-        utils.SendResponse(conn, "400 Bad Request", "Faltan parámetros: name, content, repeat\n")
+        sendResponse(conn, "400 Bad Request", "Faltan parámetros: name, content, repeat\n")
         return
     }
 
     repeat, err := strconv.Atoi(repeatStr)
     if err != nil || repeat <= 0 {
-        utils.SendResponse(conn, "400 Bad Request", "'repeat' debe ser un entero positivo\n")
+        sendResponse(conn, "400 Bad Request", "'repeat' debe ser un entero positivo\n")
         return
     }
 
@@ -33,9 +33,9 @@ func CreateFile(conn net.Conn, params map[string]string) {
 
     err = os.WriteFile("files/" + name, []byte(repeated), 0644)
     if err != nil {
-        utils.SendResponse(conn, "500 Internal Server Error", "No se pudo crear el archivo\n")
+        sendResponse(conn, "500 Internal Server Error", "No se pudo crear el archivo\n")
         return
     }
 
-    utils.SendResponse(conn, "200 OK", "Archivo creado exitosamente\n")
+    sendResponse(conn, "200 OK", "Archivo creado exitosamente\n")
 }

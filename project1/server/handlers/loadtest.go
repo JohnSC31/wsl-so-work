@@ -2,23 +2,22 @@ package handlers
 
 import (
 	"fmt"
-	"http-servidor/utils"
 	"net"
 	"strconv"
 	"sync"
 	"time"
 )
 
-func Loadtest(conn net.Conn, tasks string, sleep string) {
+func Loadtest(conn net.Conn, tasks string, sleep string, sendResponse SendResponseFunc) {
 	tasksI, err := strconv.Atoi(tasks)
 	if err != nil || tasksI < 1 {
-		utils.SendResponse(conn, "400 Bad Request", "El parametro 'tasks' debe ser un número valido mayor que 0\n")
+		sendResponse(conn, "400 Bad Request", "El parametro 'tasks' debe ser un número valido mayor que 0\n")
 		return
 	}
 
 	sleepI, err := strconv.Atoi(sleep)
 	if err != nil || sleepI < 0 {
-		utils.SendResponse(conn, "400 Bad Request", "El parametro 'sleep' debe ser un numero valido\n")
+		sendResponse(conn, "400 Bad Request", "El parametro 'sleep' debe ser un numero valido\n")
 		return
 	}
 
@@ -50,5 +49,5 @@ func Loadtest(conn net.Conn, tasks string, sleep string) {
 		duration.Seconds(),
 	)
 
-	utils.SendResponse(conn, "200 OK", body)
+	sendResponse(conn, "200 OK", body)
 }
