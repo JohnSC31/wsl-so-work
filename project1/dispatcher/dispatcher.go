@@ -192,10 +192,7 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	method, path := utils.ParseRequestLine(request)
 
 	// creo que podria dar problemas con los workers que envian solicitudes POST
-	/*if method != "GET" {
-		utils.SendResponse(conn, "405 Method Not Allowed", "Solo se permite GET")
-		return
-	}*/
+
 	route, params := utils.ParseRoute(path)
 	/*if !d.isValidRoute(route) {
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
@@ -205,6 +202,11 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	d.Metrics.mu.Lock()
 	d.Metrics.TotalRequests++
 	d.Metrics.mu.Unlock()
+
+	if method != "GET" {
+		utils.SendResponse(conn, "405 Method Not Allowed", "Solo se permite GET")
+		return
+	}
 
 	newRequest := Request{
 		Method: method,
