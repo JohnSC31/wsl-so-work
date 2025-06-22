@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net"
+	"time"
 	// Replace with the actual module path if different
 )
 
@@ -10,7 +11,7 @@ func main() {
 	dispatcher := newDispatcher()
 
 	// Inicia health checks periódicos
-	/*go func() {
+	go func() {
 		ticker := time.NewTicker(HealthCheckInterval)
 		defer ticker.Stop()
 
@@ -20,7 +21,7 @@ func main() {
 				dispatcher.HealthCheck()
 			}
 		}
-	}()*/
+	}()
 
 	// Inicia el servidor HTTP del dispatcher
 	ln, err := net.Listen("tcp", DispatcherPort)
