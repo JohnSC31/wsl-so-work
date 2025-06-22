@@ -191,10 +191,11 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	request := string(buffer[:n])
 	method, path := utils.ParseRequestLine(request)
 
-	if method != "GET" {
+	// creo que podria dar problemas con los workers que envian solicitudes POST
+	/*if method != "GET" {
 		utils.SendResponse(conn, "405 Method Not Allowed", "Solo se permite GET")
 		return
-	}
+	}*/
 	route, params := utils.ParseRoute(path)
 	/*if !d.isValidRoute(route) {
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
@@ -213,7 +214,7 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	}
 
 	newTask := Task{
-		ID:         d.Metrics.TotalRequests,
+		ID:         fmt.Sprintf("%d", d.Metrics.TotalRequests),
 		Conn:       conn,
 		Request:    &newRequest,
 		Response:   nil,
@@ -242,7 +243,7 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	worker.taskQueue <- &newTask
 	//envia la tarea al worker
 	go func() {
-		err := d.sendToWorker(worker, path, params)
+		err := d.sendToWorker(worker, path, params, &newTask)
 		if err != nil {
 			utils.SendResponse(conn, "502 Bad Gateway", "Failed to send to worker")
 		}
@@ -311,88 +312,6 @@ func seleccionarWorker(d *Dispatcher) *Worker {
 	return nil // Aquí se implementaría la lógica para seleccionar un worker
 }
 
-/*func (d *Dispatcher) sendToWorker(worker *Worker, task *Task) error {
-	// Construir URL
-	url := fmt.Sprintf("http://%s%s", worker.URL, task.Request.Path)
-
-	// Crear solicitud HTTP
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("error creando request: %v", err)
-	}
-
-	// Añadir parámetros
-	q := req.URL.Query()
-	for key, value := range task.Request.Params {
-		q.Add(key, value)
-	}
-	req.URL.RawQuery = q.Encode()
-
-	// Configurar headers
-	req.Header.Set("Host", worker.URL)
-	req.Header.Set("X-Request-ID", fmt.Sprintf("%d", task.ID))
-
-	// Bloquear worker para actualizar estado
-	worker.mu.Lock()
-	worker.activeTasks++
-	task.Status = TaskProcessing
-	worker.mu.Unlock()
-
-	// Enviar solicitud con timeout
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		worker.mu.Lock()
-		worker.activeTasks--
-		worker.mu.Unlock()
-		return fmt.Errorf("error enviando a worker: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var responseBuilder strings.Builder
-	responseBuilder.WriteString(fmt.Sprintf("HTTP/1.1 %d %s\r\n", resp.StatusCode, resp.Status))
-
-	for k, v := range resp.Header {
-		responseBuilder.WriteString(fmt.Sprintf("%s: %s\r\n", k, strings.Join(v, ", ")))
-	}
-	responseBuilder.WriteString("\r\n") // Línea vacía que separa headers del body
-
-	// Leer la respuesta completa
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		worker.mu.Lock()
-		worker.activeTasks--
-		worker.mu.Unlock()
-		return fmt.Errorf("error leyendo respuesta: %v", err)
-	}
-	responseBuilder.Write(body)
-
-	// Guardar la respuesta en la tarea
-	fullResponse := responseBuilder.String()
-	task.Response = []byte(fullResponse)
-
-	worker.mu.Lock()
-	task.Response = body
-	task.Status = TaskCompleted
-	task.CompletedAt = time.Now()
-	worker.activeTasks--
-	taskR := <-worker.taskQueue // para vaciar el canal
-	print("Tarea completada: ", taskR.ID, "\n")
-	worker.mu.Unlock()
-
-	_, err = task.Conn.Write([]byte(fullResponse))
-	if err != nil {
-		return fmt.Errorf("error escribiendo al cliente: %v", err)
-	}
-
-	// Forzar flush si es necesario
-	if conn, ok := task.Conn.(interface{ Flush() error }); ok {
-		conn.Flush()
-	}
-
-	return nil
-}*/
-
 func generateRequestID() string {
 	b := make([]byte, 8) // 16 caracteres hex
 	if _, err := rand.Read(b); err != nil {
@@ -400,17 +319,22 @@ func generateRequestID() string {
 	}
 	return "req-" + hex.EncodeToString(b)
 }
-func (d *Dispatcher) sendToWorker(worker *Worker, path string, params map[string]string) error {
+
+func (d *Dispatcher) sendToWorker(worker *Worker, path string, params map[string]string, task *Task) error {
 	// Añadir parámetros esenciales
-	params["request_id"] = generateRequestID()
-	params["callback_url"] = "http://dispatcher:8080/callback"
+	/*params["request_id"] = generateRequestID()
+
+	params["callback_url"] = "http://dispatcher:8080/callback"*/
 
 	// Construir URL
 	query := url.Values{}
 	for k, v := range params {
 		query.Add(k, v)
+
 	}
+	//log.Printf("Enviando solicitud al worker %d: %s?%s", worker.ID, path, query.Encode())
 	workerURL := fmt.Sprintf("http://%s%s?%s", worker.URL, path, query.Encode())
+	log.Printf("URL enviada al worker: %s", workerURL)
 
 	// Enviar solicitud
 	resp, err := http.Get(workerURL)

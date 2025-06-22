@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"http-servidor/utils"
 	"log"
 	"net"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -103,22 +106,29 @@ func main() {
 func handleConnection(conn net.Conn, server *Server) {
 	defer conn.Close()
 
-	buffer := make([]byte, 1024)
-	n, err := conn.Read(buffer)
+	reader := bufio.NewReader(conn)
+	request, err := reader.ReadString('\n')
 	if err != nil {
 		log.Printf("Error leyendo: %v", err)
 		return
 	}
 
-	request := string(buffer[:n])
-	method, path := utils.ParseRequestLine(request)
+	method, fullpath := utils.ParseRequestLine(request)
+	log.Printf("Nueva solicitud: %s %s", method, fullpath)
 
 	if method != "GET" {
 		utils.SendResponse(conn, "405 Method Not Allowed", "Solo se permite GET")
 		return
 	}
 
-	route, params := utils.ParseRoute(path)
+	route, params := parseFullPath(fullpath)
+
+	if params["request_id"] == "" || params["callback_url"] == "" {
+		log.Printf("ERROR: Parámetros esenciales faltantes. request_id: '%s', callback_url: '%s'",
+			params["request_id"], params["callback_url"])
+		utils.SendResponse(conn, "400 Bad Request", "Missing required parameters")
+		return
+	}
 
 	// Se incrementa el contador de solicitudes
 	server.Metrics.Mu.Lock()
@@ -194,4 +204,30 @@ func serverStatus(conn net.Conn, s *Server) {
 	}
 
 	utils.SendJSON(conn, "200 OK", jsonData)
+}
+
+func parseFullPath(fullPath string) (string, map[string]string) {
+	// Separar path de query parameters
+	parts := strings.SplitN(fullPath, "?", 2)
+	route := parts[0]
+	params := make(map[string]string)
+
+	if len(parts) > 1 {
+		// Parsear cada par key=value
+		pairs := strings.Split(parts[1], "&")
+		for _, pair := range pairs {
+			kv := strings.SplitN(pair, "=", 2)
+			if len(kv) == 2 {
+				// Decodificar valores URL-encoded
+				decodedValue, err := url.QueryUnescape(kv[1])
+				if err != nil {
+					decodedValue = kv[1] // Usar original si falla decoding
+				}
+				params[kv[0]] = decodedValue
+			}
+		}
+	}
+
+	log.Printf("Parsed route: %s, params: %v", route, params)
+	return route, params
 }

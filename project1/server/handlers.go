@@ -15,7 +15,7 @@ func HandleRequest(req Request) {
 	callbackURL := req.Parametros["callback_url"]
 	// Validar parámetros requeridos
 	if requestID == "" || callbackURL == "" {
-		log.Printf("Faltan parámetros request_id o callback_url ", requestID, callbackURL)
+		log.Printf("AQUI Faltan parámetros request_id o callback_url ", requestID, callbackURL)
 		return
 	}
 
