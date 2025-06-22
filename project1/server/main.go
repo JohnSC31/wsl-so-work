@@ -8,6 +8,12 @@ import (
 	"os"
 	"sync"
 	"time"
+	"bufio"
+	"io"
+	"strings"
+	"math/rand" // Para generar números aleatorios
+	"strconv"
+	"fmt"
 )
 
 // CONSTANTES
@@ -22,6 +28,7 @@ type Request struct {
 	Parametros   map[string]string
 	TiempoInicio time.Time
 	Listo        chan bool
+	Body		 string 
 }
 
 // Server
@@ -70,6 +77,8 @@ func NewServer() *Server {
 }
 
 func main() {
+
+	rand.Seed(time.Now().UnixNano())
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -150,14 +159,14 @@ func handleConnectionOld(conn net.Conn, server *Server) {
 	newRequest.Listo <- true
 }
 
-// NUEVA FUNCIÓN PARA MANEJAR POST /countchunk
+// NUEVA FUNCIÓN PARA MANEJAR POST /countchunk y otros comandos
 func handleConnection(conn net.Conn, server *Server) {
 	defer conn.Close()
+	log.Printf("Worker: Handle connection started.")
 
 	reader := bufio.NewReader(conn)
 
-	// Leer la primera línea de la solicitud (e.g., "POST /countchunk HTTP/1.1")
-	requestLine, err := reader.ReadString('\n')
+	requestLineWithCRLF, err := reader.ReadString('\n')
 	if err != nil {
 		if err != io.EOF {
 			log.Printf("Worker: Error leyendo request line: %v", err)
@@ -166,50 +175,68 @@ func handleConnection(conn net.Conn, server *Server) {
 		return
 	}
 
-	method, pathAndQuery, _ := utils.ParseRequestLine(requestLine) // pathAndQuery incluirá los query params
-	route, params := utils.ParseRoute(pathAndQuery) // utils.ParseRoute debería separar la ruta y los parámetros
+	requestLine := strings.TrimSpace(requestLineWithCRLF)
+
+	log.Printf("Worker: Parsed Request Line (trimmed): '%s'", requestLine) // <-- Log crucial
+
+	// Tu utils.ParseRequestLine devuelve 2 valores, así que se asigna a 2.
+	method, pathAndQuery := utils.ParseRequestLine(requestLine)
+	route, params := utils.ParseRoute(pathAndQuery)
 
 	// Leer los encabezados HTTP
 	headers := make(map[string]string)
+	log.Printf("Worker: Starting header read loop...") // Log para depuración
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			log.Printf("Worker: Error leyendo headers: %v", err)
+			log.Printf("Worker: Error durante lectura de header: %v", err)
 			utils.SendResponse(conn, "400 Bad Request", "Error leyendo encabezados HTTP")
 			return
 		}
-		if strings.TrimSpace(line) == "" { // Línea vacía indica fin de encabezados
+
+		trimmedLine := strings.TrimSpace(line) // Esto elimina \r y \n
+		log.Printf("Worker: Leído Header Line: '%s' (Trimmed: '%s')", strings.ReplaceAll(line, "\n", "\\n"), trimmedLine) // <-- Log crucial
+
+		if trimmedLine == "" { // Si es una línea vacía después de trim, es el fin de los encabezados
+			log.Printf("Worker: Línea vacía de encabezado encontrada, terminando lectura de headers.") // Log para depuración
 			break
 		}
-		parts := strings.SplitN(line, ":", 2)
+
+		parts := strings.SplitN(trimmedLine, ":", 2)
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
 			headers[strings.ToLower(key)] = value // Guardar en minúsculas para fácil acceso
+			log.Printf("Worker: Encabezado parseado: %s -> %s", key, value) // Log para depuración
+		} else {
+			log.Printf("Worker: No se pudo parsear línea de encabezado: '%s'", trimmedLine) // Log para depuración
 		}
 	}
+	log.Printf("Worker: Mapa final de encabezados: %v", headers) // <-- Log crucial
 
 	// Se incrementa el contador de solicitudes
 	server.Metrics.Mu.Lock()
 	server.Metrics.TotalRequests++
 	server.Metrics.Mu.Unlock()
 
-	// **NUEVA LÓGICA PARA MANEJAR POST DE /countchunk**
+	log.Printf("Worker: Request ID: %d Method: %s Route: %s Params: %v", server.Metrics.TotalRequests, method, route, params)
+
+	// Lógica para manejar POST /countchunk
 	if method == "POST" && route == "/countchunk" {
-		log.Printf("Worker: Received POST request for /countchunk")
-		handleCountChunkInWorker(conn, headers, reader, server) // Nueva función para manejar esto
+		log.Printf("Worker: Received POST request for /countchunk. Delegando a handleCountChunkInWorker.")
+		handleCountChunkInWorker(conn, headers, reader, server)
 		return // Termina el manejo de la conexión aquí
 	}
 
-	// NUEVA LÓGICA: Manejar GET para /calculatepi
+	// Lógica para manejar GET /calculatepi
 	if method == "GET" && route == "/calculatepi" {
-		log.Printf("Worker: Received GET request for /calculatepi with params: %v", params)
+		log.Printf("Worker: Received GET request for /calculatepi with params: %v. Delegando a handleCalculatePiInWorker.", params)
 		handleCalculatePiInWorker(conn, params, server)
 		return // Termina el manejo de la conexión aquí
 	}
 
 	// Lógica para otros métodos y rutas (ej. GET /ping, GET /timestamp)
-	if method != "GET" { // Ahora, si no es POST /countchunk, solo permitimos GET
+	if method != "GET" { // Ahora, si no es POST /countchunk o GET /calculatepi, solo permitimos GET
 		utils.SendResponse(conn, "405 Method Not Allowed", "Método no permitido para esta ruta")
 		return
 	}
@@ -225,21 +252,22 @@ func handleConnection(conn net.Conn, server *Server) {
 		Body:         "", // No hay cuerpo para solicitudes GET
 	}
 
-	log.Printf("Worker: Request ID: %d Ruta: %s\n", newRequest.ID, newRequest.Ruta)
+	log.Printf("Worker: Request ID: %d Ruta: %s (delegando a CommandPool)", newRequest.ID, newRequest.Ruta)
 
 	if route == "/status" {
 		serverStatus(conn, server) // Asume que serverStatus existe y envía la respuesta
 	} else if route == "/ping" { // Manejar /ping directamente si no está en CommandPools
 		utils.SendResponse(conn, "200 OK", "pong")
 	} else if pool, exists := server.CommandPools[route]; exists {
-		// Enviar la solicitud al pool correspondiente
 		pool.RequestChan <- newRequest
 		// Esperar a que la tarea esté lista si tu sistema de pools lo requiere
+		<-newRequest.Listo // ¡Esto es crucial si quieres que el dispatcher reciba una respuesta!
 	} else {
-		// Ruta no encontrada
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
 	}
-	newRequest.Listo <- true
+	// Si el canal Listo ya es manejado por el pool (cerrado o enviado), esto podría causar pánico.
+	// Solo descomentar si el pool espera que TÚ cierres el canal.
+	// newRequest.Listo <- true
 }
 
 // Genera el estado del servidor y retornar la respuesta en formato JSON
@@ -326,7 +354,7 @@ func handleCountChunkInWorker(conn net.Conn, headers map[string]string, reader *
 		}
 	}
 	chunkContent := contentBuilder.String()
-	log.Printf("Worker: Chunk recibido para conteo, tamaño: %d bytes", len(chunkContent))
+	log.Printf("Worker: Chunk recibido para conteo, tamaño: %d bytes. Contenido (primeros 100 chars): '%s'", len(chunkContent), chunkContent[:min(len(chunkContent), 100)]) // <-- Log crucial
 
 	wordCount := countWords(chunkContent) // Asume que countWords existe y es correcto
 	log.Printf("Worker: Conteo de palabras para chunk: %d", wordCount)
@@ -362,7 +390,7 @@ func handleCalculatePiInWorker(conn net.Conn, params map[string]string, server *
 	pointsInCircle := 0
 	// `rand.Float64()` genera un float64 pseudoaleatorio en [0.0, 1.0)
 	for i := 0; i < iterations; i++ {
-		x := rand.Float664()
+		x := rand.Float64()
 		y := rand.Float64()
 		if (x*x + y*y) <= 1.0 { // Si el punto cae dentro del cuarto de círculo (radio 1)
 			pointsInCircle++
