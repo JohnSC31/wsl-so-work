@@ -138,7 +138,7 @@ func (d *Dispatcher) checkWorkerStatus(w *Worker) bool {
     return false
 }
 
-
+// hace el health check
 func (d *Dispatcher) HealthCheck() {
     for _, worker := range d.Workers {
         
