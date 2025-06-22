@@ -100,7 +100,7 @@ func main() {
 }
 
 // Gestion las solicitudes que le llegan al servidor
-func handleConnection(conn net.Conn, server *Server) {
+func handleConnectionOld(conn net.Conn, server *Server) {
 	defer conn.Close()
 
 	buffer := make([]byte, 1024)
@@ -113,8 +113,8 @@ func handleConnection(conn net.Conn, server *Server) {
 	request := string(buffer[:n])
 	method, path := utils.ParseRequestLine(request)
 
-	if method != "GET" {
-		utils.SendResponse(conn, "405 Method Not Allowed", "Solo se permite GET")
+	if method != "GET" || method != "POST" {
+		utils.SendResponse(conn, "405 Method Not Allowed", "Solo se permite GET y POST")
 		return
 	}
 
@@ -143,6 +143,91 @@ func handleConnection(conn net.Conn, server *Server) {
 	} else if pool, exists := server.CommandPools[route]; exists {
 		// Enviar la solicitud al pool correspondiente
 		pool.RequestChan <- newRequest
+	} else {
+		// Ruta no encontrada
+		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
+	}
+	newRequest.Listo <- true
+}
+
+// NUEVA FUNCIÓN PARA MANEJAR POST /countchunk
+func handleConnection(conn net.Conn, server *Server) {
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+
+	// Leer la primera línea de la solicitud (e.g., "POST /countchunk HTTP/1.1")
+	requestLine, err := reader.ReadString('\n')
+	if err != nil {
+		if err != io.EOF {
+			log.Printf("Worker: Error leyendo request line: %v", err)
+			utils.SendResponse(conn, "400 Bad Request", "Error leyendo la solicitud HTTP")
+		}
+		return
+	}
+
+	method, pathAndQuery, _ := utils.ParseRequestLine(requestLine) // pathAndQuery incluirá los query params
+	route, params := utils.ParseRoute(pathAndQuery) // utils.ParseRoute debería separar la ruta y los parámetros
+
+	// Leer los encabezados HTTP
+	headers := make(map[string]string)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			log.Printf("Worker: Error leyendo headers: %v", err)
+			utils.SendResponse(conn, "400 Bad Request", "Error leyendo encabezados HTTP")
+			return
+		}
+		if strings.TrimSpace(line) == "" { // Línea vacía indica fin de encabezados
+			break
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			headers[strings.ToLower(key)] = value // Guardar en minúsculas para fácil acceso
+		}
+	}
+
+	// Se incrementa el contador de solicitudes
+	server.Metrics.Mu.Lock()
+	server.Metrics.TotalRequests++
+	server.Metrics.Mu.Unlock()
+
+	// **NUEVA LÓGICA PARA MANEJAR POST DE /countchunk**
+	if method == "POST" && route == "/countchunk" {
+		log.Printf("Worker: Received POST request for /countchunk")
+		handleCountChunkInWorker(conn, headers, reader, server) // Nueva función para manejar esto
+		return // Termina el manejo de la conexión aquí
+	}
+
+	// Lógica para otros métodos y rutas (ej. GET /ping, GET /timestamp)
+	if method != "GET" { // Ahora, si no es POST /countchunk, solo permitimos GET
+		utils.SendResponse(conn, "405 Method Not Allowed", "Método no permitido para esta ruta")
+		return
+	}
+
+	// Manejo para GET (ping, timestamp, etc.)
+	newRequest := Request{
+		ID:           server.Metrics.TotalRequests, // Usa el contador actualizado
+		Conn:         conn,
+		Ruta:         route,
+		Parametros:   params,
+		TiempoInicio: time.Now(),
+		Listo:        make(chan bool),
+		Body:         "", // No hay cuerpo para solicitudes GET
+	}
+
+	log.Printf("Worker: Request ID: %d Ruta: %s\n", newRequest.ID, newRequest.Ruta)
+
+	if route == "/status" {
+		serverStatus(conn, server) // Asume que serverStatus existe y envía la respuesta
+	} else if route == "/ping" { // Manejar /ping directamente si no está en CommandPools
+		utils.SendResponse(conn, "200 OK", "pong")
+	} else if pool, exists := server.CommandPools[route]; exists {
+		// Enviar la solicitud al pool correspondiente
+		pool.RequestChan <- newRequest
+		// Esperar a que la tarea esté lista si tu sistema de pools lo requiere
 	} else {
 		// Ruta no encontrada
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
@@ -194,4 +279,59 @@ func serverStatus(conn net.Conn, s *Server) {
 	}
 
 	utils.SendJSON(conn, "200 OK", jsonData)
+}
+
+// handleCountChunkInWorker: Función para procesar el chunk de conteo de palabras
+func handleCountChunkInWorker(conn net.Conn, headers map[string]string, reader *bufio.Reader, server *Server) {
+	contentLengthStr, ok := headers["content-length"] // Los headers los parseamos a minúsculas
+	var contentLength int
+	if ok {
+		var err error
+		contentLength, err = strconv.Atoi(contentLengthStr)
+		if err != nil {
+			utils.SendResponse(conn, "400 Bad Request", "Content-Length inválido")
+			log.Printf("Worker: Error: Content-Length inválido: %v", err)
+			return
+		}
+	} else {
+		log.Println("Worker Advertencia: No Content-Length header. Leyendo hasta EOF/timeout.")
+		// Para POST, es muy recomendable tener Content-Length. Si no está presente,
+		// leer hasta EOF puede ser problemático si la conexión no se cierra inmediatamente.
+	}
+
+	var contentBuilder strings.Builder
+	var bytesRead int
+	buffer := make([]byte, 4096) // Buffer para leer chunks del cuerpo
+	for {
+		n, err := reader.Read(buffer)
+		if n > 0 {
+			contentBuilder.Write(buffer[:n])
+			bytesRead += n
+		}
+		// Condición de salida: si se ha leído todo el Content-Length o se llegó al EOF
+		if err == io.EOF || (contentLength > 0 && bytesRead >= contentLength) {
+			break
+		}
+		if err != nil {
+			utils.SendResponse(conn, "500 Internal Server Error", "Error leyendo el cuerpo del archivo")
+			log.Printf("Worker: Error leyendo el cuerpo del archivo: %v", err)
+			return
+		}
+	}
+	chunkContent := contentBuilder.String()
+	log.Printf("Worker: Chunk recibido para conteo, tamaño: %d bytes", len(chunkContent))
+
+	wordCount := countWords(chunkContent) // Asume que countWords existe y es correcto
+	log.Printf("Worker: Conteo de palabras para chunk: %d", wordCount)
+
+	utils.SendResponse(conn, "200 OK", fmt.Sprintf("%d", wordCount))
+}
+
+// Función auxiliar para contar palabras (ya la tienes en tu worker.go)
+func countWords(text string) int {
+	if len(strings.TrimSpace(text)) == 0 {
+		return 0
+	}
+	words := strings.Fields(text)
+	return len(words)
 }
