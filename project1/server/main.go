@@ -201,6 +201,13 @@ func handleConnection(conn net.Conn, server *Server) {
 		return // Termina el manejo de la conexión aquí
 	}
 
+	// NUEVA LÓGICA: Manejar GET para /calculatepi
+	if method == "GET" && route == "/calculatepi" {
+		log.Printf("Worker: Received GET request for /calculatepi with params: %v", params)
+		handleCalculatePiInWorker(conn, params, server)
+		return // Termina el manejo de la conexión aquí
+	}
+
 	// Lógica para otros métodos y rutas (ej. GET /ping, GET /timestamp)
 	if method != "GET" { // Ahora, si no es POST /countchunk, solo permitimos GET
 		utils.SendResponse(conn, "405 Method Not Allowed", "Método no permitido para esta ruta")
@@ -334,4 +341,34 @@ func countWords(text string) int {
 	}
 	words := strings.Fields(text)
 	return len(words)
+}
+
+// handleCalculatePiInWorker: Función para calcular Pi usando Monte Carlo
+func handleCalculatePiInWorker(conn net.Conn, params map[string]string, server *Server) {
+	iterationsStr, ok := params["iterations"]
+	if !ok {
+		utils.SendResponse(conn, "400 Bad Request", "Parámetro 'iterations' requerido")
+		return
+	}
+
+	iterations, err := strconv.Atoi(iterationsStr)
+	if err != nil || iterations <= 0 {
+		utils.SendResponse(conn, "400 Bad Request", "Parámetro 'iterations' debe ser un número entero positivo")
+		return
+	}
+
+	log.Printf("Worker: Calculando Pi con %d iteraciones...", iterations)
+
+	pointsInCircle := 0
+	// `rand.Float64()` genera un float64 pseudoaleatorio en [0.0, 1.0)
+	for i := 0; i < iterations; i++ {
+		x := rand.Float664()
+		y := rand.Float64()
+		if (x*x + y*y) <= 1.0 { // Si el punto cae dentro del cuarto de círculo (radio 1)
+			pointsInCircle++
+		}
+	}
+
+	log.Printf("Worker: %d puntos dentro del círculo de %d iteraciones.", pointsInCircle, iterations)
+	utils.SendResponse(conn, "200 OK", fmt.Sprintf("%d", pointsInCircle)) // Devuelve solo el conteo
 }
