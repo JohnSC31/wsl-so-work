@@ -101,42 +101,77 @@ func newDispatcher() *Dispatcher {
 	return dispatcher
 }
 
-// hace health checks periodicamente a los workers
+// revisa el estado del worker
+func (d *Dispatcher) checkWorkerStatus(w *Worker) bool {
+    conn, err := net.DialTimeout("tcp", w.URL, 5*time.Second)
+    if err != nil {
+        w.mu.Lock()
+        w.Status = false
+        w.mu.Unlock()
+		d.redistributeTasks(w)
+        return false
+    }
+    defer conn.Close()
+
+    // Enviar solicitud HTTP de verificación
+    _, err = fmt.Fprintf(conn, "GET /ping HTTP/1.1\r\nHost: %s\r\n\r\n", w.URL)
+    if err != nil {
+        w.mu.Lock()
+        w.Status = false
+        w.mu.Unlock()
+		d.redistributeTasks(w)
+        return false
+    }
+
+    // Verificar respuesta
+    scanner := bufio.NewScanner(conn)
+    if scanner.Scan() && strings.Contains(scanner.Text(), "200 OK") {
+        w.mu.Lock()
+        w.Status = true
+        w.mu.Unlock()
+        return true
+    }
+
+    w.mu.Lock()
+    w.Status = false
+    w.mu.Unlock()
+    return false
+}
+
+// hace el health check
 func (d *Dispatcher) HealthCheck() {
-	print("Iniciando health check de workers...\n")
-	for _, worker := range d.Workers {
-		go func(w *Worker) {
-			conn, err := net.DialTimeout("tcp", w.URL, 5*time.Second)
-			if err != nil {
-				w.mu.Lock()
-				w.Status = false
-				w.mu.Unlock()
-				log.Printf("Worker %d (%s) inactivo: %v", w.ID, w.URL, err)
-				redistribuirTareas(w)
-				return
-			}
-			defer conn.Close()
+    for _, worker := range d.Workers {
+        
+        d.checkWorkerStatus(worker)
+        
+		log.Printf("Worker %d (%s) estado: %t", worker.ID, worker.URL, worker.Status)
+    }
+	
+}
 
-			// Enviar solicitud HTTP válida
-			_, err = fmt.Fprintf(conn, "GET /ping HTTP/1.1\r\nHost: %s\r\n\r\n", w.URL)
-			if err != nil {
-				w.mu.Lock()
-				w.Status = false
-				w.mu.Unlock()
-				return
-			}
+// redistribuye las tareas pendientes de un worker apagado
+func (d *Dispatcher) redistributeTasks(failedWorker *Worker) {
+    failedWorker.mu.Lock()
+    defer failedWorker.mu.Unlock()
 
-			// Leer respuesta
-			scanner := bufio.NewScanner(conn)
-			scanner.Scan() // Lee la primera línea (HTTP status)
-			if strings.Contains(scanner.Text(), "200 OK") {
-				w.mu.Lock()
-				w.Status = true
-				w.mu.Unlock()
-			}
-			log.Printf("Worker %d (%s) estado: %t", w.ID, w.URL, w.Status)
-		}(worker)
-	}
+    var pendingTasks []*Task
+    for {
+        select {
+        case task := <-failedWorker.taskQueue:
+            pendingTasks = append(pendingTasks, task)
+        default:
+            // Redistribuir tareas
+            for _, task := range pendingTasks {
+                newWorker := seleccionarWorker(d)
+                if newWorker != nil {
+                    newWorker.taskQueue <- task
+					log.Printf("Redistribuyendo tarea %s del worker %d al worker %d", task.ID, failedWorker.ID, newWorker.ID)
+
+                }
+            }
+            return
+        }
+    }
 }
 
 // maneja la conexion, crea la nueva tarea, asigan la nueva tarea y envia la solicitud al servidor del worker
@@ -190,6 +225,14 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	path = worker.URL + route
 	print("Ruta del worker: ", path, "\n")
 
+	if !d.checkWorkerStatus(worker) {
+        log.Printf("Worker %d (%s) marcado como inactivo", worker.ID, worker.URL)
+		log.Printf("Cantidad de %s tareas pendientes del worker %d", len(worker.taskQueue), worker.ID)
+		d.redistributeTasks(worker)
+        utils.SendResponse(conn, "503 Service Unavailable", "Worker no disponible")
+        return
+    }
+
 	if worker == nil {
 		utils.SendResponse(conn, "503 Service Unavailable", "No hay workers disponibles")
 		d.Metrics.mu.Lock()
@@ -198,14 +241,24 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 		return
 	}
 	log.Printf("Enviando tarea %s a worker %d (%s)", newTask.ID, worker.ID, worker.URL)
+
+	worker.taskQueue <- &newTask
+	log.Printf("Tareas %s asignadas al worker %d", len(worker.taskQueue), worker.ID)
 	err = d.sendToWorker(worker, &newTask)
 	if err != nil {
 		log.Printf("Error enviando tarea a worker %d: %v", worker.ID, err)
+		// Volver a verificar estado
+        if !d.checkWorkerStatus(worker) {
+            // Redistribuir tareas pendientes si es necesario
+            d.redistributeTasks(worker)
+        }
 		conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\nError al comunicarse con el worker"))
 		return
 	}
 
 	//log.Printf("respuesta enviada al cliente para tarea %s", newTask.Response)
+	taskFinalizada := <-worker.taskQueue
+	log.Printf("Tarea %s completada por worker %d y sacada de la cola", taskFinalizada.ID, worker.ID)
 	utils.SendResponse(conn, "200 OK", string(newTask.Response))
 	log.Printf("Tarea %s completada por worker %d", newTask.ID, worker.ID)
 }
@@ -327,12 +380,14 @@ func (d *Dispatcher) sendToWorker(worker *Worker, task *Task) error {
 	// Guardar la respuesta en la tarea
 	fullResponse := responseBuilder.String()
 	task.Response = []byte(fullResponse)
+	
 
 	worker.mu.Lock()
 	task.Response = body
 	task.Status = TaskCompleted
 	task.CompletedAt = time.Now()
 	worker.activeTasks--
+
 	worker.mu.Unlock()
 
 	_, err = task.Conn.Write([]byte(fullResponse))
