@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"strconv"
 )
 
 const (
@@ -43,6 +44,12 @@ type DispatcherMetrics struct {
 	mu sync.Mutex
 }
 
+type WordCountWorkerResponse struct {
+	WorkerID  string
+	WordCount int
+	Error     error
+}
+
 // inicializa el dispatcher y los workers
 func newDispatcher() *Dispatcher {
 	print("Inicializando Dispatcher...\n")
@@ -71,6 +78,7 @@ func newDispatcher() *Dispatcher {
 			"/simulate",
 			"/sleep",
 			"/loadtest",
+			"/wordcount", // Nuevo comando para conteo de palabras
 		},
 		Metrics: metrics,
 	}
@@ -145,29 +153,61 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	print("Nueva conexión aceptada\n")
 	defer conn.Close()
 
-	buffer := make([]byte, 1024)
-	n, err := conn.Read(buffer)
+	// Utiliza bufio.Reader para leer la solicitud línea por línea de forma eficiente
+	reader := bufio.NewReader(conn)
+
+	// Leer la primera línea de la solicitud (e.g., "GET /path HTTP/1.1")
+	requestLine, err := reader.ReadString('\n')
 	if err != nil {
-		log.Printf("Error leyendo conexión: %v", err)
+		log.Printf("Error leyendo request line: %v", err)
+		utils.SendResponse(conn, "400 Bad Request", "Error leyendo la solicitud HTTP")
 		return
 	}
 
-	request := string(buffer[:n])
-	method, path := utils.ParseRequestLine(request)
+	method, path := utils.ParseRequestLine(requestLine)
 
-	if method != "GET" {
-		utils.SendResponse(conn, "405 Method Not Allowed", "Solo se permite GET")
-		return
-	}
 	route, params := utils.ParseRoute(path)
 	/*if !d.isValidRoute(route) {
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
 		return
 	}*/
 
+	// Leer los encabezados HTTP
+	headers := make(map[string]string)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			log.Printf("Error leyendo headers: %v", err)
+			utils.SendResponse(conn, "400 Bad Request", "Error leyendo encabezados HTTP")
+			return
+		}
+		if strings.TrimSpace(line) == "" { // Línea vacía indica fin de encabezados
+			break
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			headers[key] = value
+		}
+	}
+	
+	// Sumar a las metricas
 	d.Metrics.mu.Lock()
 	d.Metrics.TotalRequests++
 	d.Metrics.mu.Unlock()
+
+	if route == "/countwords" && method == "POST" {
+		log.Println("Received /countwords POST request.")
+		d.handleWordCount(conn, method, route, params, headers, reader)
+		return 
+	}
+
+	if method != "GET" {
+		utils.SendResponse(conn, "405 Method Not Allowed", "Solo se permite GET y POST")
+		return
+	}
+
 
 	newRequest := Request{
 		Method: method,
@@ -184,7 +224,11 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 		Status:     TaskPending,
 		CreatedAt:  time.Now(),
 		RetryCount: 0,
+		Content:    "",
 	}
+
+	// agregar la tarea al canal de tareas
+	// Eliminarlo al obtener la respuesta para evitar que sea reenviada por el health check
 
 	worker := seleccionarWorker(d)
 	path = worker.URL + route
@@ -346,4 +390,221 @@ func (d *Dispatcher) sendToWorker(worker *Worker, task *Task) error {
 	}
 
 	return nil
+}
+
+
+// NUEVA FUNCIÓN: Maneja la solicitud de conteo de palabras de archivos grandes
+// Ahora recibe el bufio.Reader para leer el cuerpo de la solicitud POST
+func (d *Dispatcher) handleWordCount(conn net.Conn, method, path string, params map[string]string, headers map[string]string, reader *bufio.Reader) {
+	// 1. Recibir el contenido del archivo desde el cuerpo de la solicitud POST
+	contentLengthStr, ok := headers["Content-Length"]
+	var contentLength int
+	if ok {
+		var err error
+		contentLength, err = strconv.Atoi(contentLengthStr)
+		if err != nil {
+			utils.SendResponse(conn, "400 Bad Request", "Content-Length inválido")
+			log.Printf("Error: Content-Length inválido: %v", err)
+			d.Metrics.mu.Lock()
+			d.Metrics.RequestsFailed++
+			d.Metrics.mu.Unlock()
+			return
+		}
+	} else {
+		// Para simplicidad, si no hay Content-Length, asumimos que leemos hasta EOF o hasta el timeout.
+		// En un entorno real, esto es problemático para POST. Considera exigir Content-Length.
+		log.Println("Advertencia: No Content-Length header. Leyendo hasta EOF/timeout.")
+	}
+
+	var contentBuilder strings.Builder
+	var bytesRead int
+	buffer := make([]byte, 4096) // Buffer para leer chunks del cuerpo
+	for {
+		n, err := reader.Read(buffer)
+		if n > 0 {
+			contentBuilder.Write(buffer[:n])
+			bytesRead += n
+		}
+		if err == io.EOF || (contentLength > 0 && bytesRead >= contentLength) {
+			break
+		}
+		if err != nil {
+			utils.SendResponse(conn, "500 Internal Server Error", "Error leyendo el cuerpo del archivo")
+			log.Printf("Error leyendo el cuerpo del archivo: %v", err)
+			d.Metrics.mu.Lock()
+			d.Metrics.RequestsFailed++
+			d.Metrics.mu.Unlock()
+			return
+		}
+	}
+	content := contentBuilder.String()
+	log.Printf("Archivo recibido, tamaño: %d bytes", len(content))
+
+	// 2. Dividir el archivo en chunks
+	lines := strings.Split(content, "\n")
+	numWorkers := len(d.Workers) // Usamos todos los workers disponibles
+	if numWorkers == 0 {
+		utils.SendResponse(conn, "503 Service Unavailable", "No hay workers disponibles para el conteo de palabras")
+		log.Println("No hay workers disponibles para conteo de palabras")
+		d.Metrics.mu.Lock()
+		d.Metrics.RequestsFailed++
+		d.Metrics.mu.Unlock()
+		return
+	}
+
+	chunkSize := (len(lines) + numWorkers - 1) / numWorkers // División con techo
+	if chunkSize == 0 && len(lines) > 0 {
+		chunkSize = 1
+	}
+
+	log.Printf("Dividiendo archivo en %d chunks, tamaño de chunk: %d líneas", numWorkers, chunkSize)
+
+	var wg sync.WaitGroup
+	resultsChan := make(chan WordCountWorkerResponse, numWorkers) // Canal para recolectar resultados de workers
+
+	// 3. Delegar cada chunk a un worker
+	for i := 0; i < numWorkers; i++ {
+		start := i * chunkSize
+		end := (i + 1) * chunkSize
+		if end > len(lines) {
+			end = len(lines)
+		}
+		if start >= end { // No más líneas para este chunk
+			continue
+		}
+
+		chunkContent := strings.Join(lines[start:end], "\n")
+
+		worker := seleccionarWorker(d) // Selecciona un worker según tu estrategia
+		if worker == nil {
+			log.Printf("No se pudo seleccionar worker para chunk %d, saltando.", i)
+			// Aquí podrías encolar el chunk para reintentar o marcar la tarea como fallida parcialmente
+			continue
+		}
+
+		wg.Add(1)
+		go func(w *Worker, chunk string, chunkID int) {
+			defer wg.Done()
+			log.Printf("Enviando chunk %d a worker %d (%s)", chunkID, w.ID, w.URL)
+
+			// Enviar el chunk al worker usando la nueva función sendPostToWorker
+			wordCountStr, err := d.sendPostToWorker(w, "/countchunk", chunk)
+			if err != nil {
+				resultsChan <- WordCountWorkerResponse{WorkerID: fmt.Sprintf("Worker-%d", w.ID), Error: fmt.Errorf("error enviando chunk %d a worker %s: %w", chunkID, w.URL, err)}
+				return
+			}
+
+			// Parsear el conteo de palabras de la respuesta del worker
+			wordCount, err := strconv.Atoi(strings.TrimSpace(wordCountStr))
+			if err != nil {
+				resultsChan <- WordCountWorkerResponse{WorkerID: fmt.Sprintf("Worker-%d", w.ID), Error: fmt.Errorf("error parseando conteo de palabras de worker %s para chunk %d: %w", w.URL, chunkID, err)}
+				return
+			}
+			resultsChan <- WordCountWorkerResponse{WorkerID: fmt.Sprintf("Worker-%d", w.ID), WordCount: wordCount}
+
+		}(worker, chunkContent, i+1) // Pasar el chunkID para mejor logging
+	}
+
+	// Cerrar el canal de resultados cuando todas las goroutines de workers terminen
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// 4. Recopilar y sumar los resultados
+	totalWordCount := 0
+	var errors []error
+	for res := range resultsChan {
+		if res.Error != nil {
+			log.Printf("Error recibido de worker %s: %v", res.WorkerID, res.Error)
+			errors = append(errors, res.Error)
+		} else {
+			totalWordCount += res.WordCount
+			log.Printf("Worker %s contribuyó con %d palabras.", res.WorkerID, res.WordCount)
+		}
+	}
+
+	// 5. Retornar el resultado total al cliente
+	if len(errors) > 0 {
+		errMsg := fmt.Sprintf("Errores durante el procesamiento: %v. Conteo parcial: %d", errors, totalWordCount)
+		utils.SendResponse(conn, "500 Internal Server Error", errMsg)
+		d.Metrics.mu.Lock()
+		d.Metrics.RequestsFailed++
+		d.Metrics.mu.Unlock()
+		return
+	}
+
+	log.Printf("Conteo total de palabras: %d", totalWordCount)
+	utils.SendResponse(conn, "200 OK", fmt.Sprintf("Conteo total de palabras: %d\n", totalWordCount))
+	d.Metrics.mu.Lock()
+	d.Metrics.RequestsHandled++
+	d.Metrics.mu.Unlock()
+}
+
+// NUEVA FUNCIÓN: sendPostToWorker
+// Envía una solicitud POST HTTP manual a un worker con el comando y el cuerpo de contenido.
+// Retorna el cuerpo de la respuesta del worker (el conteo de palabras como string) o un error.
+func (d *Dispatcher) sendPostToWorker(worker *Worker, command string, content string) (string, error) {
+	workerHost := strings.Split(worker.URL, ":")[0] // Obtener solo el host para el header Host
+	workerPort := strings.Split(worker.URL, ":")[1] // Obtener el puerto
+
+	requestBody := []byte(content)
+	requestHeaders := []string{
+		fmt.Sprintf("POST %s HTTP/1.1", command),
+		fmt.Sprintf("Host: %s", workerHost),
+		fmt.Sprintf("Content-Type: text/plain"),
+		fmt.Sprintf("Content-Length: %d", len(requestBody)),
+		"Connection: close", // Indicar al worker que cierre la conexión después de la respuesta
+		"",                  // Línea vacía para separar headers del body
+	}
+	fullRequest := strings.Join(requestHeaders, "\r\n") + string(requestBody)
+
+	// Bloquear worker para actualizar estado (esto se gestionará a un nivel superior si es una "tarea" general)
+	// Aquí solo estamos enviando la solicitud, la gestión de activeTasks del worker
+	// se hará en el handleWordCount o en un nivel de orquestación de tareas más general si se crea.
+	// Por ahora, lo mantenemos simple para esta función específica de comunicación.
+
+	// Establecer conexión TCP con el worker
+	workerConn, err := net.DialTimeout("tcp", worker.URL, WorkerTimeout)
+	if err != nil {
+		return "", fmt.Errorf("error conectando a worker %s: %w", worker.URL, err)
+	}
+	defer workerConn.Close()
+
+	// Enviar la solicitud HTTP al worker
+	_, err = workerConn.Write([]byte(fullRequest))
+	if err != nil {
+		return "", fmt.Errorf("error enviando solicitud a worker %s: %w", worker.URL, err)
+	}
+
+	// Leer la respuesta del worker
+	workerReader := bufio.NewReader(workerConn)
+	responseStatusLine, err := workerReader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("error leyendo status line de worker %s: %w", worker.URL, err)
+	}
+	if !strings.Contains(responseStatusLine, "200 OK") {
+		// Leer el resto de la respuesta para el log de error
+		responseBody, _ := io.ReadAll(workerReader)
+		return "", fmt.Errorf("worker %s retornó status no OK: %s - %s", worker.URL, strings.TrimSpace(responseStatusLine), string(responseBody))
+	}
+
+	// Leer y descartar headers del worker
+	for {
+		line, err := workerReader.ReadString('\n')
+		if err != nil {
+			return "", fmt.Errorf("error leyendo headers de worker %s: %w", worker.URL, err)
+		}
+		if strings.TrimSpace(line) == "" {
+			break // Fin de los headers
+		}
+	}
+
+	// Leer el cuerpo de la respuesta (el conteo de palabras)
+	wordCountBody, err := io.ReadAll(workerReader)
+	if err != nil {
+		return "", fmt.Errorf("error leyendo body de worker %s: %w", worker.URL, err)
+	}
+
+	return strings.TrimSpace(string(wordCountBody)), nil
 }
