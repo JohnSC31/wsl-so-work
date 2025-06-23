@@ -52,3 +52,4 @@ func SendJSON(conn net.Conn, status string, body []byte) {
     conn.Write([]byte(header))
     conn.Write(body)
 }
+
