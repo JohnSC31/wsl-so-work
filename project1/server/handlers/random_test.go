@@ -2,46 +2,10 @@
 package handlers // Debe ser el mismo paquete que tu función Random
 
 import (
-	"bytes"
-	"net"
 	"strings"
 	"testing"
-	"time" // Necesario para rand.Seed
 	"math/rand" // Necesario para rand.Seed
 )
-
-// Esto es una "conexión falsa" que podemos usar para las pruebas.
-// Simplemente almacena lo que se "escribe" en ella.
-type MockConn struct {
-	Written bytes.Buffer // Aquí guardaremos la respuesta que se "envía"
-}
-
-// Estos métodos son necesarios para cumplir la interfaz net.Conn
-func (m *MockConn) Read(b []byte) (n int, err error)   { return 0, nil }
-func (m *MockConn) Write(b []byte) (n int, err error)  { return m.Written.Write(b) } // Capturamos la escritura
-func (m *MockConn) Close() error                       { return nil }
-func (m *MockConn) LocalAddr() net.Addr                { return nil }
-func (m *MockConn) RemoteAddr() net.Addr               { return nil }
-func (m *MockConn) SetDeadline(t time.Time) error      { return nil }
-func (m *MockConn) SetReadDeadline(t time.Time) error  { return nil }
-func (m *MockConn) SetWriteDeadline(t time.Time) error { return nil }
-
-// Estas variables globales guardarán la ÚLTIMA respuesta enviada por nuestra función simulada.
-var (
-	testStatus string
-	testBody   string
-)
-
-// Esta es nuestra función `SendResponse` simulada.
-// En lugar de enviar la respuesta por red, simplemente la guarda en nuestras variables.
-func mockSendResponse(conn net.Conn, status string, body string) {
-	testStatus = status
-	testBody = body
-	// Puedes opcionalmente escribirlo a la MockConn para ver el resultado completo
-	// _, _ = conn.Write([]byte(fmt.Sprintf("HTTP/1.1 %s\r\n\r\n%s", status, body)))
-}
-
-// --- TUS PRUEBAS ---
 
 // Prueba un caso exitoso con entradas válidas
 func TestRandom_ValidInput(t *testing.T) {
@@ -85,7 +49,7 @@ func TestRandom_InvalidCantidad(t *testing.T) {
 	testStatus = ""
 	testBody = ""
 
-	Random(mockConn, "1", "10", "abc", mockSendResponse)
+	Random(mockConn, "3", "10", "abc", mockSendResponse)
 
 	if testStatus != "400 Bad Request" {
 		t.Errorf("Esperado status '400 Bad Request', obtenido '%s'", testStatus)

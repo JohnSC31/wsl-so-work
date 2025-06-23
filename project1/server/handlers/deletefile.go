@@ -8,10 +8,10 @@ import (
 
 // /deletefile?name=filename
 
-func DeleteFile(conn net.Conn, params map[string]string) {
+func DeleteFile(conn net.Conn, params map[string]string, sendResponse SendResponseFunc) {
     name, ok := params["name"]
     if !ok {
-        utils.SendResponse(conn, "400 Bad Request", "Falta el parámetro 'name'\n")
+        sendResponse(conn, "400 Bad Request", "Falta el parámetro 'name'\n")
         return
     }
 
@@ -20,9 +20,9 @@ func DeleteFile(conn net.Conn, params map[string]string) {
 
     err := os.Remove("files/"+name)
     if err != nil {
-        utils.SendResponse(conn, "500 Internal Server Error", "Error al eliminar el archivo (puede que no exista)\n")
+        sendResponse(conn, "500 Internal Server Error", "Error al eliminar el archivo (puede que no exista)\n")
         return
     }
 
-    utils.SendResponse(conn, "200 OK", "Archivo eliminado exitosamente\n")
+    sendResponse(conn, "200 OK", "Archivo eliminado exitosamente\n")
 }
