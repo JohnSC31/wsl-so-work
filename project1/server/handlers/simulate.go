@@ -1,17 +1,16 @@
 package handlers
 
 import (
-	"http-servidor/utils"
 	"net"
 	"strconv"
 	"time"
 )
 
-func Simulate(conn net.Conn, seconds string, nombre string) {
+func Simulate(conn net.Conn, seconds string, nombre string, sendResponse SendResponseFunc) {
 
 	secondsI, err := strconv.Atoi(seconds)
 	if err != nil || secondsI <= 0 {
-		utils.SendResponse(conn, "400 Bad Request", "Seconds debe ser un numero valido, entero y positivo\n")
+		sendResponse(conn, "400 Bad Request", "Seconds debe ser un numero valido, entero y positivo\n")
 		return
 	}
 
@@ -22,5 +21,5 @@ func Simulate(conn net.Conn, seconds string, nombre string) {
 	body += "Duracion: " + seconds + " segundos\n"
 	body += "Hora de finalizacion: " + time.Now().Format(time.RFC1123) + "\n"
 	
-	utils.SendResponse(conn, "200 OK", body)
+	sendResponse(conn, "200 OK", body)
 }

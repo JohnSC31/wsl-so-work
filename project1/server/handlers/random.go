@@ -7,8 +7,6 @@ import (
 	"strconv"
 )
 
-type SendResponseFunc func(conn net.Conn, status string, body string)
-
 func Random(conn net.Conn, min string, max string, cantidad string, sendResponse SendResponseFunc) {
 
 	cantidadI, err := strconv.Atoi(cantidad)
