@@ -16,7 +16,7 @@ type Worker struct {
 	maxCapacity   int        // Máximo de tareas concurrentes
 	taskQueue     chan *Task // Canal interno para manejar carga
 	healthChecker *time.Ticker
-	cargadas      int // Contador de tareas cargadas
+	CompletedTasks      int // Contador de tareas cargadas
 }
 
 func NewWorker(id int, url string, capacity int) *Worker {

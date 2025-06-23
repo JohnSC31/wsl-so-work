@@ -11,7 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"encoding/json"
 	"strconv"
+
 )
 
 const (
@@ -23,6 +25,7 @@ const (
 )
 
 type Dispatcher struct {
+	ID			 	int
 	Workers         []*Worker
 	TasksChan       chan *Task
 	Tasks           sync.Map // Concurrent map para tareas activas [taskID]*Task
@@ -64,6 +67,7 @@ func newDispatcher() *Dispatcher {
 	}
 
 	dispatcher := &Dispatcher{
+		ID:         1, // ID del dispatcher
 		Workers:   make([]*Worker, 0),
 		TasksChan: make(chan *Task, 1000), // Canal para recibir tareas
 		DoneChan:  make(chan struct{}),
@@ -102,7 +106,7 @@ func newDispatcher() *Dispatcher {
 		dispatcher.Workers[i].Status = true // Inicialmente todos los workers están activos
 		dispatcher.Workers[i].lastChecked = time.Now()
 		dispatcher.Workers[i].activeTasks = 0
-		dispatcher.Workers[i].taskQueue = make(chan *Task, 100)
+		dispatcher.Workers[i].taskQueue = make(chan *Task, 1000)
 		log.Printf("Worker %d registrado en %s", i+1, url)
 	}
 
@@ -208,6 +212,10 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 		utils.SendResponse(conn, "404 Not Found", "Ruta no encontrada")
 		return
 	}*/
+	if route == "/workers" {
+		workerStatus(conn, d)
+		return
+	}
 
 	// Leer los encabezados HTTP
 	headers := make(map[string]string)
@@ -234,6 +242,7 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	d.Metrics.TotalRequests++
 	d.Metrics.mu.Unlock()
 
+
 	if route == "/countwords" && method == "POST" {
 		log.Println("Received /countwords POST request.")
 		d.handleWordCount(conn, method, route, params, headers, reader)
@@ -251,6 +260,7 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 		utils.SendResponse(conn, "405 Method Not Allowed", "Solo se permite GET y POST")
 		return
 	}
+
 
 
 	newRequest := Request{
@@ -275,6 +285,14 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	// Eliminarlo al obtener la respuesta para evitar que sea reenviada por el health check
 
 	worker := seleccionarWorker(d)
+	if worker == nil {
+		utils.SendResponse(conn, "503 Service Unavailable", "No hay workers disponibles")
+		d.Metrics.mu.Lock()
+		d.Metrics.RequestsFailed++
+		d.Metrics.mu.Unlock()
+		return
+	}
+
 	path = worker.URL + route
 	print("Ruta del worker: ", path, "\n")
 
@@ -286,16 +304,16 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
         return
     }
 
-	if worker == nil {
-		utils.SendResponse(conn, "503 Service Unavailable", "No hay workers disponibles")
-		d.Metrics.mu.Lock()
-		d.Metrics.RequestsFailed++
-		d.Metrics.mu.Unlock()
-		return
-	}
+	
 	log.Printf("Enviando tarea %s a worker %d (%s)", newTask.ID, worker.ID, worker.URL)
 
 	worker.taskQueue <- &newTask
+
+	worker.mu.Lock()
+	worker.CompletedTasks++ // Incrementamos la carga del worker
+	worker.activeTasks++ // Incrementamos el contador de tareas activas
+	worker.mu.Unlock()
+
 	log.Printf("Tareas %s asignadas al worker %d", len(worker.taskQueue), worker.ID)
 	err = d.sendToWorker(worker, &newTask)
 	if err != nil {
@@ -310,10 +328,15 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	}
 
 	//log.Printf("respuesta enviada al cliente para tarea %s", newTask.Response)
-	taskFinalizada := <-worker.taskQueue
-	log.Printf("Tarea %s completada por worker %d y sacada de la cola", taskFinalizada.ID, worker.ID)
+	//taskFinalizada := <-worker.taskQueue
+	worker.mu.Lock()
+	worker.activeTasks-- // Decrementamos el contador de tareas activas
+	worker.mu.Unlock()
+	//log.Printf("Tarea %s completada por worker %d y sacada de la cola", taskFinalizada.ID, worker.ID)
 	utils.SendResponse(conn, "200 OK", string(newTask.Response))
 	log.Printf("Tarea %s completada por worker %d", newTask.ID, worker.ID)
+	worker.cleanCompletedTasks() // Limpiar tareas completadas del worker
+
 }
 
 // revisa si el endpoint existe
@@ -351,15 +374,15 @@ func seleccionarWorker(d *Dispatcher) *Worker {
 		for _, worker := range d.Workers {
 			if worker.Status {
 				// Si es el primer worker disponible o tiene menos carga
-				if minLoad == -1 || worker.cargadas < minLoad {
-					minLoad = worker.cargadas
+				if minLoad == -1 || worker.CompletedTasks < minLoad {
+					minLoad = worker.CompletedTasks
 					selectedWorker = worker
 				}
 			}
 		}
 
 		if selectedWorker != nil {
-			selectedWorker.cargadas++ // Incrementamos su carga
+			selectedWorker.CompletedTasks++ // Incrementamos su carga
 			return selectedWorker
 		}
 
@@ -367,12 +390,6 @@ func seleccionarWorker(d *Dispatcher) *Worker {
 	return nil // Aquí se implementaría la lógica para seleccionar un worker
 }
 
-func redistribuirTareas(w *Worker) {
-	print("Redistribuyendo tareas...\n")
-	// Aquí se implementaría la lógica para redistribuir las tareas pendientes
-	// a los workers activos.
-
-}
 
 func (d *Dispatcher) sendToWorker(worker *Worker, task *Task) error {
 	// Construir URL
@@ -397,7 +414,7 @@ func (d *Dispatcher) sendToWorker(worker *Worker, task *Task) error {
 
 	// Bloquear worker para actualizar estado
 	worker.mu.Lock()
-	worker.activeTasks++
+	//worker.activeTasks++
 	task.Status = TaskProcessing
 	worker.mu.Unlock()
 
@@ -408,6 +425,7 @@ func (d *Dispatcher) sendToWorker(worker *Worker, task *Task) error {
 		worker.mu.Lock()
 		worker.activeTasks--
 		worker.mu.Unlock()
+		
 		return fmt.Errorf("error enviando a worker: %v", err)
 	}
 	defer resp.Body.Close()
@@ -418,14 +436,11 @@ func (d *Dispatcher) sendToWorker(worker *Worker, task *Task) error {
 	for k, v := range resp.Header {
 		responseBuilder.WriteString(fmt.Sprintf("%s: %s\r\n", k, strings.Join(v, ", ")))
 	}
-	responseBuilder.WriteString("\r\n") // Línea vacía que separa headers del body
+	responseBuilder.WriteString("\r\n") // separa headers del body
 
 	// Leer la respuesta completa
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		worker.mu.Lock()
-		worker.activeTasks--
-		worker.mu.Unlock()
 		return fmt.Errorf("error leyendo respuesta: %v", err)
 	}
 	responseBuilder.Write(body)
@@ -439,8 +454,7 @@ func (d *Dispatcher) sendToWorker(worker *Worker, task *Task) error {
 	task.Response = body
 	task.Status = TaskCompleted
 	task.CompletedAt = time.Now()
-	worker.activeTasks--
-
+	//worker.activeTasks--
 	worker.mu.Unlock()
 
 	_, err = task.Conn.Write([]byte(fullResponse))
@@ -456,6 +470,65 @@ func (d *Dispatcher) sendToWorker(worker *Worker, task *Task) error {
 	return nil
 }
 
+
+func workerStatus(conn net.Conn, d *Dispatcher) {
+	d.Metrics.mu.Lock()
+	uptime := time.Since(d.Metrics.StartTime).Truncate(time.Second).String()
+	totalRequests := d.Metrics.TotalRequests
+	d.Metrics.mu.Unlock()
+
+	workerActivo := 0
+
+	// Armamos una estructura por worker
+	workersStatus := make([]map[string]interface{}, 0)
+	for _, worker := range d.Workers {
+		if worker.Status {
+			workerActivo ++
+			log.Printf("Worker %d (%s) activo", worker.ID, worker.URL)
+		} 
+		worker.mu.RLock()
+		status := map[string]interface{}{
+			"pid":            worker.ID,
+			"url":           worker.URL,
+			"status":        worker.Status,
+			"active_tasks":  worker.activeTasks,
+			"CompletedTasks":      worker.CompletedTasks,
+			"last_checked":  worker.lastChecked.Format(time.RFC3339),
+			"max_capacity":  worker.maxCapacity,
+		}
+		worker.mu.RUnlock()
+		workersStatus = append(workersStatus, status)
+	}
+
+	response := map[string]interface{}{
+		"main_pid":        d.ID, // PID del proceso principal
+		"uptime":          uptime,
+		"total_requests":  totalRequests,
+		"workers_status":  workersStatus,
+		"total_workers":   workerActivo,
+	}
+	jsonData, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+			utils.SendResponse(conn, "500 Internal Server Error", "Error generando JSON")
+			return
+		}
+	utils.SendJSON(conn, "200 OK", jsonData)
+}
+
+
+func (w *Worker) cleanCompletedTasks() {
+    w.mu.Lock()
+    defer w.mu.Unlock()
+    
+    // Limpiar queue sin bloquear
+    for {
+        select {
+        case <-w.taskQueue:
+            // Simplemente vaciar
+        default:
+            return
+        }
+    }
 
 // NUEVA FUNCIÓN: Maneja la solicitud de conteo de palabras de archivos grandes
 // Ahora recibe el bufio.Reader para leer el cuerpo de la solicitud POST
@@ -900,4 +973,5 @@ func (d *Dispatcher) sendGetToWorker(worker *Worker, command string, params map[
 	}
 
 	return strings.TrimSpace(string(responseBody)), nil
+
 }
