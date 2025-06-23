@@ -25,6 +25,7 @@ type Task struct {
 	CreatedAt   time.Time
 	CompletedAt time.Time
 	RetryCount  int // Para reintentos
+	Content 	string
 }
 
 type Request struct {
