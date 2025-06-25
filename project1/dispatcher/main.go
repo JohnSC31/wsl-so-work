@@ -4,11 +4,12 @@ import (
 	"log"
 	"net"
 	"time"
-	// Replace with the actual module path if different
+
 )
 
 func main() {
 	dispatcher := newDispatcher()
+	
 
 	// Inicia health checks periódicos
 	go func() {
@@ -43,3 +44,5 @@ func main() {
 		go dispatcher.HandleConnection(conn)
 	} 
 }
+
+

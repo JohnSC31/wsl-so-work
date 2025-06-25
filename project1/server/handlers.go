@@ -37,7 +37,7 @@ func HandleRequest(req Request) {
 		handlers.Hash(req.Conn, req.Parametros["text"], utils.SendResponse)
 
 	case "/simulate":
-		handlers.Simulate(req.Conn, req.Parametros["seconds"], req.Parametros["task"])
+		handlers.Simulate(req.Conn, req.Parametros["seconds"], req.Parametros["task"], utils.SendResponse)
 
 	case "/sleep":
 		handlers.Sleep(req.Conn, req.Parametros["seconds"], utils.SendResponse)

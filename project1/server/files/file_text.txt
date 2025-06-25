@@ -1,0 +1,10 @@
+1. Distribución de Comandos HTTP Existentes: El Dispatcher debe poder redirigir comandos como
+ /fibonacci, /hash, /simulateacualquiera de los workers.
+ 2. Problemas Paralelizables: Se deben implementar al menos dos de los siguientes:
+ • Cálculo de π vía método Monte Carlo
+ • Búsquedadehashconprefijo (Proof of Work)
+ • Integración numérica
+ • Multiplicación de matrices
+ • Conteo depalabras en archivos grandes
+ 3. HealthcheckyToleranciaaFallos:ElDispatcherdeberealizarverificacionesperiódicasalosworkers
+ mediante el endpoint /ping. Si un worker no responde:

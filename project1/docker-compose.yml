@@ -4,29 +4,49 @@ services:
   dispatcher:
     build: ./dispatcher
     ports:
-      - "8080:8080"  # Puerto público del dispatcher
+      - "8080:8080"
+    networks:
+      - app_network
+    restart: always
 
   worker1:
     build: ./server
-    #ports:
-    #  - "8081:8080"  # Puerto externo:interno
-    
+    hostname: worker1  # Esto es crítico
+    image: project1-worker
     environment:
+      - WORKER_NUMBER=1  # Esto es redundante pero recomendado
       - PORT=8080
+      - DISPATCHER_URL=http://dispatcher:8080
+      - WORKER_NAME=worker1
+    networks:
+      - app_network
 
   worker2:
-    build: ./server
-    #ports:
-    #  - "8082:8080"
-    
+    hostname: worker2
+    image: project1-worker
     environment:
+      - WORKER_NUMBER=2
       - PORT=8080
+      - DISPATCHER_URL=http://dispatcher:8080
+      - WORKER_NAME=worker2
+    networks:
+      - app_network
+    depends_on:
+      - worker1
 
   worker3:
-    build: ./server
-    
-    #ports:
-     # - "8083:8080"
-
+    hostname: worker3
+    image: project1-worker
     environment:
+      - WORKER_NUMBER=3
       - PORT=8080
+      - DISPATCHER_URL=http://dispatcher:8080
+      - WORKER_NAME=worker3
+    networks:
+      - app_network
+    depends_on:
+      - worker2
+
+networks:
+  app_network:
+    driver: bridge

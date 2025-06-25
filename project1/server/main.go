@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 	"bufio"
+	"net/http"
 	"io"
 	"strings"
 	"math/rand" // Para generar números aleatorios
@@ -18,6 +19,16 @@ import (
 
 // CONSTANTES
 const PORT = ":8080"
+
+const (
+	maxRetries     = 3
+	retryInterval  = 5 * time.Second
+)
+
+var (
+    workerNumber int
+    counterMutex  sync.Mutex
+)
 
 // Structs
 // Request
@@ -78,6 +89,18 @@ func NewServer() *Server {
 
 func main() {
 
+	workerName := os.Getenv("WORKER_NAME") // Obtener nombre de variable de entorno
+    if workerName == "" {
+        workerName = "worker1" // Valor por defecto
+    }
+    
+    workerPort := getEnv("PORT", "8080")
+    workerURL := fmt.Sprintf("%s:%s", workerName, workerPort)
+    dispatcherURL := getEnv("DISPATCHER_URL", "http://dispatcher:8080")
+
+    log.Printf("Iniciando %s en %s", workerName, workerURL)
+    go registerWithDispatcher(dispatcherURL, workerURL, workerName)
+
 	rand.Seed(time.Now().UnixNano())
 
 	port := os.Getenv("PORT")
@@ -106,6 +129,48 @@ func main() {
 		}
 		go handleConnection(conn, Server)
 	}
+}
+
+func getWorkerNumber() int {
+	// 1. Intentar obtener de variable de entorno explícita
+	if numStr := os.Getenv("WORKER_NUMBER"); numStr != "" {
+		if num, err := strconv.Atoi(numStr); err == nil && num > 0 {
+			return num
+		}
+	}
+
+	// 2. Extraer del hostname (para Docker Compose)
+	hostname, err := os.Hostname()
+	if err == nil {
+		// Formato esperado: worker1, worker2, etc.
+		if strings.HasPrefix(hostname, "worker") {
+			if num, err := strconv.Atoi(strings.TrimPrefix(hostname, "worker")); err == nil && num > 0 {
+				return num
+			}
+		}
+		// Formato alternativo: worker_1, worker-1
+		if strings.HasPrefix(hostname, "worker_") || strings.HasPrefix(hostname, "worker-") {
+			parts := strings.Split(hostname, "_")
+			if len(parts) < 2 {
+				parts = strings.Split(hostname, "-")
+			}
+			if len(parts) > 1 {
+				if num, err := strconv.Atoi(parts[1]); err == nil && num > 0 {
+					return num
+				}
+			}
+		}
+	}
+
+	// 3. Fallback seguro (nunca debería llegar aquí en producción)
+	log.Println("ADVERTENCIA: No se pudo determinar el número de worker, usando 1 como fallback")
+	return 1
+}
+func getEnv(key, defaultValue string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return defaultValue
 }
 
 // Gestion las solicitudes que le llegan al servidor
@@ -362,7 +427,7 @@ func handleCountChunkInWorker(conn net.Conn, headers map[string]string, reader *
 	utils.SendResponse(conn, "200 OK", fmt.Sprintf("%d", wordCount))
 }
 
-// Función auxiliar para contar palabras (ya la tienes en tu worker.go)
+// Función auxiliar para contar palabras 
 func countWords(text string) int {
 	if len(strings.TrimSpace(text)) == 0 {
 		return 0
@@ -399,4 +464,77 @@ func handleCalculatePiInWorker(conn net.Conn, params map[string]string, server *
 
 	log.Printf("Worker: %d puntos dentro del círculo de %d iteraciones.", pointsInCircle, iterations)
 	utils.SendResponse(conn, "200 OK", fmt.Sprintf("%d", pointsInCircle)) // Devuelve solo el conteo
+}
+
+func registerWithDispatcher(dispatcherURL, workerURL string, workerName string) {
+
+	
+	cleanWorkerURL := strings.ReplaceAll(workerURL, "%3A", ":")
+    cleanWorkerURL = strings.ReplaceAll(cleanWorkerURL, "%2F", "/")
+	for i := 0; i < maxRetries; i++ {
+		// Construir la URL de registro
+		registrationURL := fmt.Sprintf("%s/suscribir?url=%s", dispatcherURL, cleanWorkerURL)
+		log.Printf("URL de registro: %s", registrationURL)
+		// Crear solicitud HTTP GET con parámetros
+		req, err := http.NewRequest("GET", registrationURL, nil)
+		if err != nil {
+			log.Printf("Error creando solicitud de registro: %v", err)
+			time.Sleep(retryInterval)
+			continue
+		}
+		
+		// Añadir parámetro URL como query parameter
+		q := req.URL.Query()
+		q.Add("url", workerURL)
+		req.URL.RawQuery = q.Encode()
+		
+		// Configurar headers como en sendToWorker
+		req.Header.Set("Host", dispatcherURL)
+		req.Header.Set("X-Worker-Registration", "true")
+		req.Header.Set("X-Worker-URL", workerURL)
+		
+		// Configurar timeout para la solicitud
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+		}
+		
+		// Enviar solicitud
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("Error enviando solicitud de registro (intento %d/%d): %v", i+1, maxRetries, err)
+			time.Sleep(retryInterval)
+			continue
+		}
+		defer resp.Body.Close()
+		
+		// Procesar respuesta como en sendToWorker
+		var responseBuilder strings.Builder
+		responseBuilder.WriteString(fmt.Sprintf("HTTP/1.1 %d %s\r\n", resp.StatusCode, resp.Status))
+		
+		for k, v := range resp.Header {
+			responseBuilder.WriteString(fmt.Sprintf("%s: %s\r\n", k, strings.Join(v, ", ")))
+		}
+		responseBuilder.WriteString("\r\n")
+		
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("Error leyendo respuesta: %v", err)
+			continue
+		}
+		responseBuilder.Write(body)
+		
+		fullResponse := responseBuilder.String()
+		
+		// Verificar respuesta
+		if resp.StatusCode == http.StatusOK {
+			log.Printf("Registrado exitosamente en el dispatcher como %s", workerURL)
+			log.Printf("Respuesta completa:\n%s", fullResponse)
+			return
+		}
+		
+		log.Printf("Respuesta inesperada del dispatcher (código %d):\n%s", resp.StatusCode, fullResponse)
+		time.Sleep(retryInterval)
+	}
+	
+	log.Printf("No se pudo registrar con el dispatcher después de %d intentos", maxRetries)
 }
