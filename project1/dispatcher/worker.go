@@ -59,7 +59,6 @@ func workerStatus(conn net.Conn, d *Dispatcher) {
 			"pid":            worker.ID,
 			"url":           worker.URL,
 			"status":        worker.Status,
-			"active_tasks":  worker.activeTasks,
 			"CompletedTasks":      worker.CompletedTasks,
 			"last_checked":  worker.lastChecked.Format(time.RFC3339),
 			"max_capacity":  worker.maxCapacity,

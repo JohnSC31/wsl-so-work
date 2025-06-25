@@ -42,4 +42,6 @@ test "ERROR: Calcular Pi con 'iterations' igual a 0" "curl -s $URL/calculatepi?i
 test "Calcular palabras de archivo válido (3500 líneas)" \
   "curl -X POST -H \"Content-Type: text/plain\" --data-binary \"@3500_lineas.txt\" $URL/countwords"
 
+test "Estado de los workers" "curl -s $URL/workers"
+
 echo "✅ PRUEBAS COMPLETADAS"
