@@ -162,7 +162,7 @@ func (d *Dispatcher) HandleConnection(conn net.Conn) {
 	// Cálculo de Pi (GET con parámetros)
 	if route == "/calculatepi" && method == "GET" {
 		log.Println("Received /calculatepi GET request.")
-		d.handleCalculatePi(conn, params)
+		d.handleCalculatePi(conn, method, route, params)
 		return
 	}
 

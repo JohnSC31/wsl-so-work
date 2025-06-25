@@ -7,11 +7,11 @@ import (
 	"strings"
 	"sync"
 	"http-servidor/utils"
-	
+	"time"
 )
 
 // handleCalculatePi: Nueva función para coordinar el cálculo distribuido de Pi
-func (d *Dispatcher) handleCalculatePi(conn net.Conn, params map[string]string) {
+func (d *Dispatcher) handleCalculatePi(conn net.Conn, method string, route string, params map[string]string) {
 	totalIterationsStr, ok := params["iterations"]
 	if !ok {
 		utils.SendResponse(conn, "400 Bad Request", "Parámetro 'iterations' requerido para calcular Pi")
@@ -57,11 +57,47 @@ func (d *Dispatcher) handleCalculatePi(conn net.Conn, params map[string]string) 
 			continue // Evitar enviar tareas vacías
 		}
 
+		newRequest := Request{
+			Method: method,
+			Path:   route,
+			Params: params,
+			Done:   make(chan bool),
+		}
+
+		newTask := Task{
+			ID:         d.Metrics.TotalRequests,
+			Conn:       conn,
+			Request:    &newRequest,
+			Response:   nil,
+			Status:     TaskPending,
+			CreatedAt:  time.Now(),
+			RetryCount: 0,
+			Content:    "",
+		}
+
 		worker := seleccionarWorker(d)
 		if worker == nil {
 			log.Printf("No se pudo seleccionar worker para la tarea de Pi del worker %d, saltando.", i)
+			d.Metrics.mu.Lock()
+			d.Metrics.RequestsFailed++
+			d.Metrics.mu.Unlock()
 			continue
 		}
+
+		if !d.checkWorkerStatus(worker) {
+			log.Printf("Worker %d (%s) marcado como inactivo", worker.ID, worker.URL)
+			log.Printf("Cantidad de %s tareas pendientes del worker %d", len(worker.taskQueue), worker.ID)
+			d.redistributeTasks(worker)
+			utils.SendResponse(conn, "503 Service Unavailable", "Worker no disponible")
+			continue
+		}
+
+		worker.taskQueue <- &newTask
+
+		worker.mu.Lock()
+		worker.CompletedTasks++ // Incrementamos la carga del worker
+		worker.activeTasks++ // Incrementamos el contador de tareas activas
+		worker.mu.Unlock()
 
 		totalPointsGenerated += workerIterations // Acumular el total real de puntos a generar
 
@@ -85,7 +121,7 @@ func (d *Dispatcher) handleCalculatePi(conn net.Conn, params map[string]string) 
 			}
 			resultsChan <- WorkerResult{WorkerID: fmt.Sprintf("Worker-%d", workerID), Count: pointsInCircle}
 
-		}(worker, workerIterations, i+1)
+		}(worker, workerIterations, worker.ID)
 	}
 
 	go func() {
